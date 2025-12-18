@@ -78,7 +78,7 @@ export default {
       chart: null,
       drawerVisible: false,
       selectedNode: null,
-      drawerSize: "29.8vw" // ✅ 简化：大概等于右侧 chat 的 1/3 宽度
+      drawerSize: "33.2vw" // ✅ 简化：大概等于右侧 chat 的 1/3 宽度
     };
   },
   mounted() {

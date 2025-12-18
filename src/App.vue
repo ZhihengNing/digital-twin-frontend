@@ -1,13 +1,28 @@
 <template>
   <div id="app">
     <div class="chat-page">
-      <el-row class="full-row row-gap">
-        <el-col :span="17" class="full-col">
-          <Graph class="full-content" :nodes="nodes" :relations="relations" :categories="categories" />
+      <el-row class="full-row">
+        <el-col :span="leftSpan" class="full-col">
+          <Graph class="full-content"
+                 :nodes="nodes"
+                 :relations="relations"
+                 :categories="categories" />
         </el-col>
 
-        <el-col :span="7" class="full-col">
-          <Chat class="full-content" />
+        <el-col :span="chatSpan" class="full-col">
+          <Chat
+              class="full-content"
+              @toggle-side="sideOpen = !sideOpen"
+          />
+        </el-col>
+
+        <!-- ✅ 第三栏：更窄 -->
+        <el-col
+            v-if="sideOpen"
+            :span="sideSpan"
+            class="full-col"
+        >
+          <SidePanel class="full-content" @close="sideOpen = false" />
         </el-col>
       </el-row>
     </div>
@@ -15,17 +30,19 @@
 </template>
 
 <script>
+
+
 import Chat from "@/components/Chat.vue";
 import Graph from "@/components/Graph.vue";
+import SidePanel from "@/components/SidePanel.vue";
 
 export default {
-  name: 'App',
-  components: {
-    Graph,
-    Chat,
-  },
+  name: "App",
+  components: { Graph, Chat, SidePanel },
   data() {
     return {
+      sideOpen: false, // ✅ 控制第三块出现/消失
+
       categories: [{ name: "设备" }, { name: "人员" }, { name: "地点" }],
       nodes: [
         { id: "d1", name: "空调机组-A", category: 0, brand: "XX", status: "RUNNING" },
@@ -37,8 +54,21 @@ export default {
         { source: "d1", target: "l1", name: "位于" }
       ]
     };
+  },
+  computed: {
+    // 默认：16 : 8
+    // 打开后：12 : 7 : 5（第三栏更窄）
+    leftSpan() {
+      return this.sideOpen ? 11 : 16;
+    },
+    chatSpan() {
+      return this.sideOpen ? 7 : 8;
+    },
+    sideSpan() {
+      return 6;
+    }
   }
-}
+};
 </script>
 
 <style>
