@@ -3,25 +3,19 @@
     <div class="chat-page">
       <el-row class="full-row">
         <el-col :span="leftSpan" class="full-col">
-          <Graph class="full-content"
-                 :nodes="nodes"
-                 :relations="relations"
-                 :categories="categories" />
-        </el-col>
-
-        <el-col :span="chatSpan" class="full-col">
-          <Chat
+          <Graph
               class="full-content"
-              @toggle-side="sideOpen = !sideOpen"
+              :nodes="nodes"
+              :relations="relations"
+              :categories="categories"
           />
         </el-col>
 
-        <!-- ✅ 第三栏：更窄 -->
-        <el-col
-            v-if="sideOpen"
-            :span="sideSpan"
-            class="full-col"
-        >
+        <el-col :span="chatSpan" class="full-col">
+          <Chat class="full-content" @toggle-side="sideOpen = !sideOpen" />
+        </el-col>
+
+        <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
           <SidePanel class="full-content" @close="sideOpen = false" />
         </el-col>
       </el-row>
@@ -30,8 +24,6 @@
 </template>
 
 <script>
-
-
 import Chat from "@/components/Chat.vue";
 import Graph from "@/components/Graph.vue";
 import SidePanel from "@/components/SidePanel.vue";
@@ -41,13 +33,12 @@ export default {
   components: { Graph, Chat, SidePanel },
   data() {
     return {
-      sideOpen: false, // ✅ 控制第三块出现/消失
-
+      sideOpen: false,
       categories: [{ name: "设备" }, { name: "人员" }, { name: "地点" }],
       nodes: [
-        { id: "d1", name: "空调机组-A", category: 0, brand: "XX", status: "RUNNING" },
-        { id: "p1", name: "运维-张三", category: 1, phone: "138xxxx" },
-        { id: "l1", name: "机房-3F", category: 2 }
+        { id: "d1", name: "空调机组-A", category: 0, brand: "XX", status: "RUNNING", value: 6 },
+        { id: "p1", name: "运维-张三", category: 1, phone: "138xxxx", value: 2 },
+        { id: "l1", name: "机房-3F", category: 2, value: 1 }
       ],
       relations: [
         { source: "p1", target: "d1", name: "负责" },
@@ -56,8 +47,6 @@ export default {
     };
   },
   computed: {
-    // 默认：16 : 8
-    // 打开后：12 : 7 : 5（第三栏更窄）
     leftSpan() {
       return this.sideOpen ? 11 : 16;
     },
@@ -72,56 +61,96 @@ export default {
 </script>
 
 <style>
-/* ===== 全局：必须放在非 scoped 里 ===== */
-html, body {
-  height: 100%;
-  margin: 0;
-  overflow: hidden; /* ✅ 禁止浏览器滚动 */
-}
-
-#app {
+/* ========= Global Layout ========= */
+html,
+body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  /* 不要 text-align:center，会让一些布局看起来怪 */
+}
+#app {
+  height: 100%;
+  overflow: hidden;
   text-align: left;
-
-  /* 统一深色底 */
-  background: #0f172a;
-  color: rgba(255,255,255,0.88);
 }
 
-/* 页面容器：占满视口 */
+/* ========= Design Tokens (全局主题变量) ========= */
+:root {
+  /* 基础背景/卡片 */
+  --ws-bg: #0f172a;
+  --ws-workbench-grad:
+      radial-gradient(1200px 600px at 20% 10%, rgba(96, 165, 250, 0.10) 0%, rgba(96, 165, 250, 0) 60%),
+      radial-gradient(1000px 600px at 80% 20%, rgba(139, 92, 246, 0.10) 0%, rgba(139, 92, 246, 0) 55%),
+      linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+
+  --card-bg-grad: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.98));
+  --card-border: 1px solid rgba(255, 255, 255, 0.08);
+  --card-radius: 18px;
+  --card-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+
+  /* Header */
+  --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  --divider: 1px solid rgba(255, 255, 255, 0.08);
+
+  /* 文本 */
+  --t-strong: rgba(255, 255, 255, 0.92);
+  --t-main: rgba(255, 255, 255, 0.86);
+  --t-sub: rgba(255, 255, 255, 0.60);
+  --t-muted: rgba(255, 255, 255, 0.45);
+
+  /* Accent */
+  --accent: rgba(96, 165, 250, 0.95);
+  --accent-soft: rgba(96, 165, 250, 0.18);
+  --accent-border: rgba(96, 165, 250, 0.25);
+
+  /* Purple accent */
+  --accent2: rgba(139, 92, 246, 0.95);
+
+  /* 控件 */
+  --ctl-bg: rgba(255, 255, 255, 0.06);
+  --ctl-bg-hover: rgba(255, 255, 255, 0.10);
+  --ctl-border: 1px solid rgba(255, 255, 255, 0.10);
+  --ctl-radius: 12px;
+
+  /* 输入框 */
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --input-border: 1px solid rgba(255, 255, 255, 0.10);
+  --focus-border: rgba(96, 165, 250, 0.70);
+  --focus-ring: 0 0 0 2px rgba(96, 165, 250, 0.18);
+
+  /* 气泡 */
+  --bubble-border: 1px solid rgba(255, 255, 255, 0.08);
+  --bubble-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  --bubble-radius: 14px;
+  --bubble-ai: rgba(255, 255, 255, 0.06);
+  --bubble-user-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.28) 0%, rgba(96, 165, 250, 0.16) 100%);
+
+  /* Scrollbar */
+  --sb-track: rgba(255, 255, 255, 0.05);
+  --sb-thumb-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.42), rgba(255, 255, 255, 0.18));
+  --sb-thumb-grad-hover: linear-gradient(180deg, rgba(96, 165, 250, 0.60), rgba(255, 255, 255, 0.22));
+}
+
+/* ========= Workbench ========= */
 .chat-page {
   height: 100%;
   width: 100%;
   overflow: hidden;
-
-  /* 深色工作台背景（比纯黑更高级） */
-  background:
-      radial-gradient(1200px 600px at 20% 10%, rgba(96,165,250,0.10) 0%, rgba(96,165,250,0) 60%),
-      radial-gradient(1000px 600px at 80% 20%, rgba(139,92,246,0.10) 0%, rgba(139,92,246,0) 55%),
-      linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+  background: var(--ws-workbench-grad);
+  color: var(--t-main);
 }
 
-/* el-row：改成 flex 用 gap 做中间缝隙 */
+/* el-row 用 flex + gap */
 .full-row {
   height: 100%;
   width: 100%;
   margin: 0 !important;
-
-  display: flex;       /* ✅ 让 gap 生效 */
-  gap: 12px;           /* ✅ 图谱和聊天中间缝隙 */
-  padding: 12px;       /* ✅ 整体留一点边距（不想要就改 0） */
+  display: flex;
+  gap: 12px;
+  padding: 12px;
   box-sizing: border-box;
 }
 
-/* el-col：必须能撑满高度 + flex 让内部组件撑满 */
 .full-col {
   height: 100%;
   min-height: 0;
@@ -129,11 +158,9 @@ html, body {
   box-sizing: border-box;
 }
 
-/* 组件占满列 */
 .full-content {
   flex: 1;
   height: 100%;
   min-height: 0;
 }
-
 </style>
