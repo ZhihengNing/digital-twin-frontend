@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 
-const apiClient = axios.create({
+export const apiClient = axios.create({
     baseURL: '/api', // 后端 API 的基础路径
     timeout: 20000, // 请求超时时间
     headers: {
@@ -9,19 +9,10 @@ const apiClient = axios.create({
     },
 });
 
-
-// 请求拦截器，增加token
-apiClient.interceptors.request.use(
-    config => {
-        if(config.url!=="/sys-m-s/user-management/login"){
-            config.headers.Authorization = window.sessionStorage.getItem('tmzf-token')
-        }
-        return config
+export const apiAgentClient = axios.create({
+    baseURL: '/agentApi', // 后端 API 的基础路径
+    timeout: 20000, // 请求超时时间
+    headers: {
+        'Content-Type': 'application/json',
     },
-    error => {
-        return Promise.reject(error);
-    }
-)
-
-
-export default apiClient;
+});

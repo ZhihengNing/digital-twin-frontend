@@ -46,7 +46,6 @@
 
       <div class="rg-drawer-body">
         <div class="rg-json-stack" :style="stackStyle">
-          <!-- TOP JSON：实例 -->
           <div class="rg-json-panel">
             <div class="rg-json-top">
               <span class="rg-json-badge">实例 JSON（getInstance）</span>
@@ -170,14 +169,12 @@ export default {
     copyJsonTop() { this.copyText(this.topJsonText); },
     copyJsonBottom() { this.copyText(this.bottomJsonText); },
 
-    // ✅ 初始化拉全图：getAllGraph(scene)
     async loadAllGraph(force = false) {
       if (!force && (this.nodes.length || this.relations.length)) return;
 
       this.graphLoading = true;
       try {
-        const res = await getAllGraph(this.scene);
-        const data = res && res.data ? res.data : res;
+        const data = await getAllGraph(this.scene);
 
         this.categories = (data && data.categories && data.categories.length)
             ? data.categories
@@ -222,10 +219,7 @@ export default {
       this.bottomLoading = true;
       this.topData = null;
       this.bottomData = null;
-
-      // ⚠️ category 你现在节点里可能是数字 index（0/1/2）
-      // 建议后端 nodes 里提供 modelId/categoryKey，优先用它
-      const category = node ? (node.modelId || node.categoryKey || node.category) : null;
+      const category = node ? node.category : null;
       const name = node ? node.name : null;
 
       try {

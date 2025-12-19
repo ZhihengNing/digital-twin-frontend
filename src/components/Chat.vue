@@ -11,7 +11,7 @@
               size="mini"
               class="assistant-select"
               popper-class="assistant-popper"
-              @change="onAssistantChange"
+              @change="onUserSessionChange"
           >
             <el-option
                 v-for="item in assistants"
@@ -96,7 +96,8 @@
 </template>
 
 <script>
-import {resolveQuery} from "@/api/chat";
+import {getAllSessions, getHistoryMessages, resolveQuery} from "@/api/chat";
+import {getUniqueId} from "@/utils/util";
 
 export default {
   name: "ChatGPTLikeDialog",
@@ -104,39 +105,25 @@ export default {
     return {
       inputContent: "",
       messages: [],
-      assistants: [
-        { label: "智能对话助手", value: "default" },
-        { label: "运维助手", value: "ops" },
-        { label: "知识库助手", value: "kb" }
-      ],
-      activeAssistant: "default"
+      assistants: [],
+      activeAssistant: ""
     };
   },
   mounted() {
+    this.assistants = getAllSessions();
+    this.activeAssistant = this.assistants.length > 0 ? this.assistants[0].val : getUniqueId();
     this.fetchChatHistory(this.activeAssistant);
   },
   methods: {
-    async onAssistantChange(val) {
+    async onUserSessionChange(val) {
       await this.fetchChatHistory(val);
     },
 
-    async fetchChatHistory(assistantKey) {
-      this.messages = [{ isUser: false, content: "", loading: true }];
+    async fetchChatHistory(sessionId) {
+      this.messages = [{isUser: false, content: "", loading: true}];
 
-      await new Promise((r) => setTimeout(r, 400));
-
-      const mock =
-          assistantKey === "ops"
-              ? [
-                { role: "assistant", content: "我是运维助手：你可以问我 Redis/Neo4j/服务器问题。" },
-                { role: "user", content: "neo4j 远程连不上怎么办？" },
-                { role: "assistant", content: "先检查 7687/7474 端口监听、防火墙、docker 端口映射。" }
-              ]
-              : assistantKey === "kb"
-                  ? [{ role: "assistant", content: "我是知识库助手：我可以从你的本体/文档里检索答案。" }]
-                  : [{ role: "assistant", content: "我是智能对话助手：我们从这里开始对话吧。" }];
-
-      this.messages = mock.map((x) => ({
+      const res = await getHistoryMessages(sessionId)
+      this.messages = res.map((x) => ({
         isUser: x.role === "user",
         content: x.content,
         loading: false
@@ -162,11 +149,8 @@ export default {
 
       const loadingIndex = this.messages.push({isUser: false, content: "", loading: true}) - 1;
 
-      // ✅ 调接口：返回空则回退 content
       const finalQuery = await resolveQuery(content);
 
-      // 你后面可以用 finalQuery 去请求 LLM/工具/后端
-      // 这里我先把它显示出来示例
       this.messages.splice(loadingIndex, 1, {
         isUser: false,
         content: finalQuery,
