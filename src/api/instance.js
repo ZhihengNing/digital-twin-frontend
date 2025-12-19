@@ -9,7 +9,7 @@ export const getInstance = async (scene,modelId,instanceName) => {
         "instanceName":instanceName
     };
     try {
-        const response = await apiClient.post("agent/getInstance",data);
+        const response = await apiClient.post("/digitaltwin/getInstance",data);
         return response.data;
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);

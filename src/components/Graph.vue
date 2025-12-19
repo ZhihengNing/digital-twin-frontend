@@ -213,13 +213,11 @@ export default {
 
     // ✅ 点击节点：getInstance(scene, category, name) + getModelById(category)
     async loadNodeDetail(node) {
-      const token = ++this._reqToken;
-
       this.topLoading = true;
       this.bottomLoading = true;
       this.topData = null;
       this.bottomData = null;
-      const category = node ? node.category : null;
+      const category = node ? this.categories[node.category].name : null;
       const name = node ? node.name : null;
 
       try {
@@ -227,16 +225,20 @@ export default {
           getInstance(this.scene, category, name),
           getModelById(category)
         ]);
+        console.log(insRes)
+        console.log(modelRes)
+        if(insRes.code===200){
+          this.topData=insRes.data.instance;
+          console.log(this.topData)
+        }
 
-        if (token !== this._reqToken) return;
-
-        this.topData = insRes && insRes.data ? insRes.data : insRes;
-        this.bottomData = modelRes && modelRes.data ? modelRes.data : modelRes;
+        if(modelRes.code===200) {
+          this.bottomData = modelRes.data.model;
+          console.log(this.bottomData)
+        }
       } catch (e) {
-        if (token !== this._reqToken) return;
         this.$message && this.$message.error("节点详情加载失败");
       } finally {
-        if (token !== this._reqToken) return;
         this.topLoading = false;
         this.bottomLoading = false;
       }

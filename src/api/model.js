@@ -7,7 +7,7 @@ export const getModelById = async (id) => {
         "modelId":id
     }
     try {
-        const response = await apiClient.post("agent/getModel",data);
+        const response = await apiClient.post("/digitaltwin/getModel",data);
         return response.data;
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
