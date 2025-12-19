@@ -38,28 +38,32 @@
         </div>
 
         <div class="rg-head-actions">
-          <button class="rg-mini-btn" @click="copyJsonTop" :disabled="!selectedNode">复制上面JSON</button>
+          <button class="rg-mini-btn" @click="copyJsonTop" :disabled="topLoading || !selectedNode">复制上面JSON</button>
           <button class="rg-mini-btn" @click="copyJsonBottom" :disabled="bottomLoading">复制下面JSON</button>
           <i class="el-icon-close rg-close" @click="drawerVisible = false"></i>
         </div>
       </div>
 
       <div class="rg-drawer-body">
-        <!-- 两个 JSON 框：上 4 / 下 6（可调） -->
         <div class="rg-json-stack" :style="stackStyle">
-          <!-- TOP JSON -->
+          <!-- TOP JSON：实例 -->
           <div class="rg-json-panel">
             <div class="rg-json-top">
-              <span class="rg-json-badge">节点 JSON（原始）</span>
-              <span class="rg-json-hint">点击节点即更新</span>
+              <span class="rg-json-badge">实例 JSON（getInstance）</span>
+              <span class="rg-json-hint" v-if="topLoading">加载中…</span>
+              <span class="rg-json-hint" v-else>已加载</span>
             </div>
-            <pre class="rg-json-view">{{ topJsonText }}</pre>
+
+            <div class="rg-json-loading" v-if="topLoading">
+              <el-skeleton :rows="4" animated />
+            </div>
+            <pre class="rg-json-view" v-else>{{ topJsonText }}</pre>
           </div>
 
-          <!-- BOTTOM JSON：模拟请求加载 -->
+          <!-- BOTTOM JSON：模型 -->
           <div class="rg-json-panel">
             <div class="rg-json-top">
-              <span class="rg-json-badge">本体的 DTDL 定义 </span>
+              <span class="rg-json-badge">本体的 DTDL 定义（getModelById）</span>
               <span class="rg-json-hint" v-if="bottomLoading">加载中…</span>
               <span class="rg-json-hint" v-else>已加载</span>
             </div>
@@ -67,7 +71,6 @@
             <div class="rg-json-loading" v-if="bottomLoading">
               <el-skeleton :rows="6" animated />
             </div>
-
             <pre class="rg-json-view" v-else>{{ bottomJsonText }}</pre>
           </div>
         </div>
@@ -79,49 +82,61 @@
 <script>
 import * as echarts from "echarts";
 
+// ✅ 你把路径换成你自己的
+import { getAllGraph } from "@/api/graph";
+import { getInstance } from "@/api/instance";
+import { getModelById } from "@/api/model";
+
 export default {
   name: "RelationGraph",
   props: {
-    title: { type: String, default: "关系图谱" },
-    nodes: { type: Array, required: true },
-    relations: { type: Array, required: true },
-    categories: { type: Array, default: () => [{ name: "默认" }] }
+    scene: { type: String, default: "test_scene" },
+    title: { type: String, default: "关系图谱" }
   },
   data() {
     return {
       chart: null,
+
+      // Graph 内部数据（不再从外部 props 传入）
+      nodes: [],
+      relations: [],
+      categories: [{ name: "默认" }],
+
+      // UI
       drawerVisible: false,
       selectedNode: null,
       drawerSize: "33.2vw",
 
-      // ✅ 两个 JSON 框高度比例：4 : 6（想改就改这两个数）
       ratioTop: 4,
       ratioBottom: 6,
 
-      // ✅ Bottom 模拟请求数据
+      // Drawer JSON
+      topLoading: false,
       bottomLoading: false,
+      topData: null,
       bottomData: null,
 
-      // 防止快速点多个节点导致“旧请求回写”
+      // 全图加载状态（可选）
+      graphLoading: false,
+
+      // 防止快速点击导致旧请求回写
       _reqToken: 0
     };
   },
   computed: {
     stackStyle() {
-      // 用 CSS grid 控制两个面板高度比例
-      return {
-        gridTemplateRows: `${this.ratioTop}fr ${this.ratioBottom}fr`
-      };
+      return { gridTemplateRows: `${this.ratioTop}fr ${this.ratioBottom}fr` };
     },
     topJsonText() {
-      return this.selectedNode ? this.pretty(this.selectedNode.raw || this.selectedNode) : "{}";
+      return this.topData ? this.pretty(this.topData) : "{}";
     },
     bottomJsonText() {
       return this.bottomData ? this.pretty(this.bottomData) : "{}";
     }
   },
-  mounted() {
-    this.initChart();
+  async mounted() {
+    await this.loadAllGraph();  // ✅ 初始化拉全图
+    this.initChart();           // ✅ 再 init ECharts
     window.addEventListener("resize", this.onResize);
   },
   beforeDestroy() {
@@ -129,19 +144,19 @@ export default {
     if (this.chart) this.chart.dispose();
   },
   watch: {
-    nodes: { deep: true, handler() { this.render(); } },
-    relations: { deep: true, handler() { this.render(); } }
+    // ✅ scene 变化：重新拉全图并重绘
+    async scene() {
+      await this.loadAllGraph(true);
+      this.render(true);
+    }
   },
   methods: {
     onResize() {
       if (this.chart) this.chart.resize();
     },
     pretty(obj) {
-      try {
-        return JSON.stringify(obj, null, 2);
-      } catch (e) {
-        return String(obj);
-      }
+      try { return JSON.stringify(obj, null, 2); }
+      catch (e) { return String(obj); }
     },
 
     async copyText(str) {
@@ -152,16 +167,39 @@ export default {
         this.$message && this.$message.error("复制失败（浏览器权限限制）");
       }
     },
-    copyJsonTop() {
-      this.copyText(this.topJsonText);
-    },
-    copyJsonBottom() {
-      this.copyText(this.bottomJsonText);
+    copyJsonTop() { this.copyText(this.topJsonText); },
+    copyJsonBottom() { this.copyText(this.bottomJsonText); },
+
+    // ✅ 初始化拉全图：getAllGraph(scene)
+    async loadAllGraph(force = false) {
+      if (!force && (this.nodes.length || this.relations.length)) return;
+
+      this.graphLoading = true;
+      try {
+        const res = await getAllGraph(this.scene);
+        const data = res && res.data ? res.data : res;
+
+        this.categories = (data && data.categories && data.categories.length)
+            ? data.categories
+            : [{ name: "默认" }];
+
+        this.nodes = (data && data.nodes) ? data.nodes : [];
+        this.relations = (data && (data.relations || data.links))
+            ? (data.relations || data.links)
+            : [];
+      } catch (e) {
+        this.$message && this.$message.error("getAllGraph 加载失败");
+        this.categories = [{ name: "默认" }];
+        this.nodes = [];
+        this.relations = [];
+      } finally {
+        this.graphLoading = false;
+      }
     },
 
     initChart() {
       this.chart = echarts.init(this.$refs.chart);
-      this.render();
+      this.render(true);
 
       this.chart.on("click", (params) => {
         if (params && params.dataType === "node") {
@@ -170,49 +208,44 @@ export default {
 
           this.drawerVisible = true;
 
-          // ✅ 点击节点后：触发“模拟请求”加载 bottom 数据
-          this.loadBottomDataMock(this.selectedNode);
+          // ✅ 点击节点：拉实例 + 拉模型
+          this.loadNodeDetail(this.selectedNode);
         }
       });
     },
 
-    // ✅ 模拟请求：根据节点生成一份“扩展数据”
-    async loadBottomDataMock(node) {
+    // ✅ 点击节点：getInstance(scene, category, name) + getModelById(category)
+    async loadNodeDetail(node) {
       const token = ++this._reqToken;
+
+      this.topLoading = true;
       this.bottomLoading = true;
+      this.topData = null;
       this.bottomData = null;
 
-      // 模拟网络延迟
-      await new Promise((r) => setTimeout(r, 600));
+      // ⚠️ category 你现在节点里可能是数字 index（0/1/2）
+      // 建议后端 nodes 里提供 modelId/categoryKey，优先用它
+      const category = node ? (node.modelId || node.categoryKey || node.category) : null;
+      const name = node ? node.name : null;
 
-      // 如果期间又点了别的节点，丢弃旧结果
-      if (token !== this._reqToken) return;
+      try {
+        const [insRes, modelRes] = await Promise.all([
+          getInstance(this.scene, category, name),
+          getModelById(category)
+        ]);
 
-      const now = new Date();
-      this.bottomData = {
-        request: {
-          url: "/api/node/detail",
-          method: "GET",
-          params: { id: node ? node.id : null }
-        },
-        response: {
-          nodeId: node ? node.id : null,
-          name: node ? node.name : null,
-          category: node ? node.category : null,
-          updatedAt: now.toISOString(),
-          metrics: {
-            healthScore: Math.round(70 + Math.random() * 29),
-            temperature: +(18 + Math.random() * 12).toFixed(1),
-            vibration: +(0.1 + Math.random() * 0.8).toFixed(2)
-          },
-          alarms: [
-            { level: "INFO", code: "A-1001", message: "例行巡检通过", ts: now.toISOString() }
-          ],
-          tags: ["digital-twin", "monitoring", "mock-data"]
-        }
-      };
+        if (token !== this._reqToken) return;
 
-      this.bottomLoading = false;
+        this.topData = insRes && insRes.data ? insRes.data : insRes;
+        this.bottomData = modelRes && modelRes.data ? modelRes.data : modelRes;
+      } catch (e) {
+        if (token !== this._reqToken) return;
+        this.$message && this.$message.error("节点详情加载失败");
+      } finally {
+        if (token !== this._reqToken) return;
+        this.topLoading = false;
+        this.bottomLoading = false;
+      }
     },
 
     fitView() {

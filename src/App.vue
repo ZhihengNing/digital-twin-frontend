@@ -5,18 +5,24 @@
         <el-col :span="leftSpan" class="full-col">
           <Graph
               class="full-content"
-              :nodes="nodes"
-              :relations="relations"
-              :categories="categories"
+              :scene="scene"
           />
         </el-col>
 
+        <!-- 中间：Chat -->
         <el-col :span="chatSpan" class="full-col">
-          <Chat class="full-content" @toggle-side="sideOpen = !sideOpen" />
+          <Chat
+              class="full-content"
+              @toggle-side="sideOpen = !sideOpen"
+          />
         </el-col>
 
+        <!-- 右侧：SidePanel（可展开） -->
         <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
-          <SidePanel class="full-content" @close="sideOpen = false" />
+          <SidePanel
+              class="full-content"
+              @close="sideOpen = false"
+          />
         </el-col>
       </el-row>
     </div>
@@ -33,17 +39,8 @@ export default {
   components: { Graph, Chat, SidePanel },
   data() {
     return {
-      sideOpen: false,
-      categories: [{ name: "设备" }, { name: "人员" }, { name: "地点" }],
-      nodes: [
-        { id: "d1", name: "空调机组-A", category: 0, brand: "XX", status: "RUNNING", value: 6 },
-        { id: "p1", name: "运维-张三", category: 1, phone: "138xxxx", value: 2 },
-        { id: "l1", name: "机房-3F", category: 2, value: 1 }
-      ],
-      relations: [
-        { source: "p1", target: "d1", name: "负责" },
-        { source: "d1", target: "l1", name: "位于" }
-      ]
+      scene: "test_scene",
+      sideOpen: false
     };
   },
   computed: {

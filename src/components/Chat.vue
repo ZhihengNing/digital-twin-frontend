@@ -96,6 +96,8 @@
 </template>
 
 <script>
+import {resolveQuery} from "@/api/chat";
+
 export default {
   name: "ChatGPTLikeDialog",
   data() {
@@ -154,17 +156,20 @@ export default {
       const content = this.inputContent.trim();
       if (!content) return;
 
-      this.messages.push({ isUser: true, content });
+      this.messages.push({isUser: true, content});
       this.inputContent = "";
       this.scrollToBottom();
 
-      const loadingIndex = this.messages.push({ isUser: false, content: "", loading: true }) - 1;
+      const loadingIndex = this.messages.push({isUser: false, content: "", loading: true}) - 1;
 
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      // ✅ 调接口：返回空则回退 content
+      const finalQuery = await resolveQuery(content);
 
+      // 你后面可以用 finalQuery 去请求 LLM/工具/后端
+      // 这里我先把它显示出来示例
       this.messages.splice(loadingIndex, 1, {
         isUser: false,
-        content,
+        content: finalQuery,
         loading: false
       });
 
