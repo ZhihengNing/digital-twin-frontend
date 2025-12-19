@@ -3,7 +3,7 @@
     <div class="sp-header">
       <div class="sp-title">
         <span class="sp-dot"></span>
-        <span>辅助面板</span>
+        <span>思考过程展示</span>
       </div>
 
       <button class="sp-close" @click="$emit('close')">退出</button>

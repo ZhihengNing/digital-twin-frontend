@@ -38,20 +38,38 @@
         </div>
 
         <div class="rg-head-actions">
-          <button class="rg-mini-btn" @click="copyJson" :disabled="!selectedNode">复制JSON</button>
+          <button class="rg-mini-btn" @click="copyJsonTop" :disabled="!selectedNode">复制上面JSON</button>
+          <button class="rg-mini-btn" @click="copyJsonBottom" :disabled="bottomLoading">复制下面JSON</button>
           <i class="el-icon-close rg-close" @click="drawerVisible = false"></i>
         </div>
       </div>
 
       <div class="rg-drawer-body">
-        <div class="rg-section-title">节点 JSON</div>
-
-        <div class="rg-json-panel">
-          <div class="rg-json-top">
-            <span class="rg-json-badge">application/json</span>
-            <span class="rg-json-hint">点击“复制JSON”可直接复制</span>
+        <!-- 两个 JSON 框：上 4 / 下 6（可调） -->
+        <div class="rg-json-stack" :style="stackStyle">
+          <!-- TOP JSON -->
+          <div class="rg-json-panel">
+            <div class="rg-json-top">
+              <span class="rg-json-badge">节点 JSON（原始）</span>
+              <span class="rg-json-hint">点击节点即更新</span>
+            </div>
+            <pre class="rg-json-view">{{ topJsonText }}</pre>
           </div>
-          <pre class="rg-json-view">{{ selectedNode ? pretty(selectedNode.raw || selectedNode) : '{}' }}</pre>
+
+          <!-- BOTTOM JSON：模拟请求加载 -->
+          <div class="rg-json-panel">
+            <div class="rg-json-top">
+              <span class="rg-json-badge">本体的 DTDL 定义 </span>
+              <span class="rg-json-hint" v-if="bottomLoading">加载中…</span>
+              <span class="rg-json-hint" v-else>已加载</span>
+            </div>
+
+            <div class="rg-json-loading" v-if="bottomLoading">
+              <el-skeleton :rows="6" animated />
+            </div>
+
+            <pre class="rg-json-view" v-else>{{ bottomJsonText }}</pre>
+          </div>
         </div>
       </div>
     </el-drawer>
@@ -74,8 +92,33 @@ export default {
       chart: null,
       drawerVisible: false,
       selectedNode: null,
-      drawerSize: "33.2vw"
+      drawerSize: "33.2vw",
+
+      // ✅ 两个 JSON 框高度比例：4 : 6（想改就改这两个数）
+      ratioTop: 4,
+      ratioBottom: 6,
+
+      // ✅ Bottom 模拟请求数据
+      bottomLoading: false,
+      bottomData: null,
+
+      // 防止快速点多个节点导致“旧请求回写”
+      _reqToken: 0
     };
+  },
+  computed: {
+    stackStyle() {
+      // 用 CSS grid 控制两个面板高度比例
+      return {
+        gridTemplateRows: `${this.ratioTop}fr ${this.ratioBottom}fr`
+      };
+    },
+    topJsonText() {
+      return this.selectedNode ? this.pretty(this.selectedNode.raw || this.selectedNode) : "{}";
+    },
+    bottomJsonText() {
+      return this.bottomData ? this.pretty(this.bottomData) : "{}";
+    }
   },
   mounted() {
     this.initChart();
@@ -100,26 +143,78 @@ export default {
         return String(obj);
       }
     },
-    async copyJson() {
+
+    async copyText(str) {
       try {
-        const jsonStr = this.pretty(this.selectedNode ? (this.selectedNode.raw || this.selectedNode) : {});
-        await navigator.clipboard.writeText(jsonStr);
-        this.$message && this.$message.success("已复制 JSON");
+        await navigator.clipboard.writeText(str);
+        this.$message && this.$message.success("已复制");
       } catch (e) {
         this.$message && this.$message.error("复制失败（浏览器权限限制）");
       }
     },
+    copyJsonTop() {
+      this.copyText(this.topJsonText);
+    },
+    copyJsonBottom() {
+      this.copyText(this.bottomJsonText);
+    },
+
     initChart() {
       this.chart = echarts.init(this.$refs.chart);
       this.render();
 
       this.chart.on("click", (params) => {
         if (params && params.dataType === "node") {
-          this.selectedNode = params.data && params.data.__rawNode ? params.data.__rawNode : (params.data || null);
+          this.selectedNode =
+              params.data && params.data.__rawNode ? params.data.__rawNode : (params.data || null);
+
           this.drawerVisible = true;
+
+          // ✅ 点击节点后：触发“模拟请求”加载 bottom 数据
+          this.loadBottomDataMock(this.selectedNode);
         }
       });
     },
+
+    // ✅ 模拟请求：根据节点生成一份“扩展数据”
+    async loadBottomDataMock(node) {
+      const token = ++this._reqToken;
+      this.bottomLoading = true;
+      this.bottomData = null;
+
+      // 模拟网络延迟
+      await new Promise((r) => setTimeout(r, 600));
+
+      // 如果期间又点了别的节点，丢弃旧结果
+      if (token !== this._reqToken) return;
+
+      const now = new Date();
+      this.bottomData = {
+        request: {
+          url: "/api/node/detail",
+          method: "GET",
+          params: { id: node ? node.id : null }
+        },
+        response: {
+          nodeId: node ? node.id : null,
+          name: node ? node.name : null,
+          category: node ? node.category : null,
+          updatedAt: now.toISOString(),
+          metrics: {
+            healthScore: Math.round(70 + Math.random() * 29),
+            temperature: +(18 + Math.random() * 12).toFixed(1),
+            vibration: +(0.1 + Math.random() * 0.8).toFixed(2)
+          },
+          alarms: [
+            { level: "INFO", code: "A-1001", message: "例行巡检通过", ts: now.toISOString() }
+          ],
+          tags: ["digital-twin", "monitoring", "mock-data"]
+        }
+      };
+
+      this.bottomLoading = false;
+    },
+
     fitView() {
       if (!this.chart) return;
       this.chart.dispatchAction({ type: "restore" });
@@ -128,10 +223,12 @@ export default {
     reLayout() {
       this.render(true);
     },
+
     calcNodeSize(n) {
       const v = Number(n.value != null ? n.value : 1);
       return 28 + Math.min(26, Math.max(0, Math.log(v + 1) * 10));
     },
+
     buildSeriesData() {
       const seriesNodes = (this.nodes || []).map((n) => {
         const id = String(n.id);
@@ -158,6 +255,7 @@ export default {
 
       return { seriesNodes, seriesLinks };
     },
+
     render(forceReLayout = false) {
       if (!this.chart) return;
 
@@ -297,17 +395,13 @@ export default {
   width: 12px;
   height: 12px;
   border-radius: 999px;
-
   background: var(--accent);
   box-shadow:
       0 0 0 2px rgba(96, 165, 250, 0.20),
       0 0 18px rgba(96, 165, 250, 0.55);
 }
 
-.rg-actions {
-  display: flex;
-  gap: 10px;
-}
+.rg-actions { display: flex; gap: 10px; }
 
 /* 统一按钮 */
 .rg-btn,
@@ -339,10 +433,7 @@ export default {
   transform: none;
 }
 
-.rg-chart {
-  flex: 1;
-  min-height: 0;
-}
+.rg-chart { flex: 1; min-height: 0; }
 
 /* Drawer 美化 */
 ::v-deep .rg-drawer {
@@ -403,11 +494,7 @@ export default {
   border-radius: 999px;
 }
 
-.rg-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+.rg-head-actions { display: flex; align-items: center; gap: 10px; }
 
 .rg-close {
   color: rgba(255, 255, 255, 0.7);
@@ -415,18 +502,19 @@ export default {
   padding: 6px;
   border-radius: 10px;
 }
-.rg-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
+.rg-close:hover { background: rgba(255, 255, 255, 0.08); }
 
 .rg-drawer-body {
   padding: 14px 16px 18px 16px;
+  height: calc(100% - 0px);
 }
 
-.rg-section-title {
-  color: rgba(255, 255, 255, 0.85);
-  font-weight: 900;
-  margin: 10px 0 10px;
+/* ✅ 两个 JSON 框容器：用 grid 做 4:6 比例 */
+.rg-json-stack {
+  height: calc(100vh - 56px - 64px); /* 大致可用高度，不精确也没关系 */
+  min-height: 420px;
+  display: grid;
+  gap: 12px;
 }
 
 /* JSON Panel */
@@ -435,6 +523,10 @@ export default {
   overflow: hidden;
   border: var(--ctl-border);
   background: rgba(0, 0, 0, 0.18);
+
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 关键：允许内部滚动 */
 }
 
 .rg-json-top {
@@ -456,16 +548,19 @@ export default {
   border-radius: 999px;
 }
 
-.rg-json-hint {
-  font-size: 12px;
-  color: var(--t-sub);
+.rg-json-hint { font-size: 12px; color: var(--t-sub); }
+
+.rg-json-loading{
+  padding: 12px;
 }
 
 .rg-json-view {
   margin: 0;
   padding: 12px;
-  max-height: 70vh;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
   "Courier New", monospace;
   font-size: 12px;
@@ -477,9 +572,7 @@ export default {
   scrollbar-color: rgba(255, 255, 255, 0.22) var(--sb-track);
 }
 
-.rg-json-view::-webkit-scrollbar {
-  width: 10px;
-}
+.rg-json-view::-webkit-scrollbar { width: 10px; }
 .rg-json-view::-webkit-scrollbar-track {
   background: var(--sb-track);
   border-radius: 999px;
