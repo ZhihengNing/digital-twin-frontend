@@ -7,7 +7,9 @@
         </el-col>
 
         <el-col :span="chatSpan" class="full-col">
+          <!-- ✅ 用 key 硬重置，避免 Chat 组件缓存导致“初始就显示上次的 createMode=true” -->
           <Chat
+              :key="chatKey"
               class="full-content"
               @toggle-side="sideOpen = !sideOpen"
               @tool-event="onToolEvent"
@@ -41,40 +43,71 @@ export default {
       scene: "test_scene",
       sideOpen: false,
 
-      // ✅ 当前 session
-      activeSessionId: window.localStorage.getItem("sessionId") || "default",
+      // ✅ 不再默认 default
+      activeSessionId: null,
 
-      // ✅ 按 session 存日志：{ [sessionId]: [event, event, ...] }
-      logsBySession: {}
+      // ✅ 按 session 存日志：{ [sessionId]: [event, ...] }
+      logsBySession: {},
+
+      // ✅ 控制 Chat 组件重建（避免 createMode 等 UI 状态残留）
+      chatKey: 1
     };
   },
-  mounted() {
+
+  // ✅ 关键：把 localStorage 写入提前到 created（子组件 mounted 前就能读到正确 scene）
+  created() {
     this.scene = "test_scene";
     window.localStorage.setItem("scene", this.scene);
 
-    // 确保 default 有数组
-    if (!this.logsBySession[this.activeSessionId]) {
+    const saved = window.localStorage.getItem("sessionId");
+    this.activeSessionId = saved && String(saved).trim() ? saved : null;
+
+    // 只有真实 session 才初始化日志数组
+    if (this.activeSessionId && !this.logsBySession[this.activeSessionId]) {
       this.$set(this.logsBySession, this.activeSessionId, []);
     }
   },
+
   computed: {
     currentSessionLogs() {
+      if (!this.activeSessionId) return [];
       return this.logsBySession[this.activeSessionId] || [];
     },
     leftSpan() { return this.sideOpen ? 11 : 16; },
     chatSpan() { return this.sideOpen ? 7 : 8; },
     sideSpan() { return 6; }
   },
+
   methods: {
     onSessionChange(sessionId) {
-      this.activeSessionId = sessionId || "default";
-      if (!this.logsBySession[this.activeSessionId]) {
-        this.$set(this.logsBySession, this.activeSessionId, []);
+      const sid = sessionId && String(sessionId).trim() ? sessionId : null;
+      this.activeSessionId = sid;
+
+      // ✅ 优化：同步写入 localStorage，确保刷新页面后能恢复默认会话
+      if (sid) {
+        window.localStorage.setItem("sessionId", sid);
+      } else {
+        window.localStorage.removeItem("sessionId");
       }
+
+      if (sid && !this.logsBySession[sid]) {
+        this.$set(this.logsBySession, sid, []);
+      }
+
+      /**
+       * ✅ 可选策略：
+       * - 如果你希望“切换 session 时 Chat UI 也强制回到干净状态”，打开下面一行
+       * - 如果不希望（保留 Chat 里的历史/输入等状态），就保持注释
+       */
+      // this.chatKey++;
     },
+
     onToolEvent(ev) {
-      // ev 必须带 sessionId
-      const sid = ev?.sessionId || this.activeSessionId || "default";
+      const sid = ev?.sessionId && String(ev.sessionId).trim() ? ev.sessionId : null;
+
+      // ✅ 没有 session 的日志直接丢弃（符合“未开启对话不会有日志”）
+      if (!sid) return;
+
       if (!this.logsBySession[sid]) {
         this.$set(this.logsBySession, sid, []);
       }
@@ -89,8 +122,7 @@ export default {
 
 <style>
 /* ========= Global Layout ========= */
-html,
-body {
+html, body {
   height: 100%;
   margin: 0;
   overflow: hidden;
@@ -177,14 +209,12 @@ body {
   padding: 12px;
   box-sizing: border-box;
 }
-
 .full-col {
   height: 100%;
   min-height: 0;
   display: flex;
   box-sizing: border-box;
 }
-
 .full-content {
   flex: 1;
   height: 100%;
