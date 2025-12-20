@@ -5,7 +5,6 @@ export async function resolveQuery(query) {
     const data={
         message:query
     }
-    console.log(data)
     try {
         const response = await apiAgentClient.post("/agent/chat", data,{
             headers: {
@@ -18,6 +17,7 @@ export async function resolveQuery(query) {
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
     }
+    return null;
 }
 
 export async function getHistoryMessages() {
@@ -32,6 +32,7 @@ export async function getHistoryMessages() {
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
     }
+    return null;
     // return sessionId === "ops"
     //     ? [
     //         {role: "assistant", content: "我是运维助手：你可以问我 Redis/Neo4j/服务器问题。"},
@@ -55,6 +56,7 @@ export async function getAllSessions(){
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
     }
+    return null;
 
     // return [
     //     { label: "智能对话助手", value: "default" },

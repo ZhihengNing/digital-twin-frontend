@@ -12,4 +12,5 @@ export const getModelById = async (id) => {
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
     }
+    return null;
 };

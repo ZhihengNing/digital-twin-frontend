@@ -14,5 +14,6 @@ export const getInstance = async (scene,modelId,instanceName) => {
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
     }
+    return null;
 };
 

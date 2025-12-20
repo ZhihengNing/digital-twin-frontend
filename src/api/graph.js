@@ -45,4 +45,5 @@ export const getAllGraph = async (scene) => {
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);
     }
+    return null;
 };

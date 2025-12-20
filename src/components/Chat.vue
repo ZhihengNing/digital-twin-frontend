@@ -110,8 +110,8 @@ export default {
   },
   async mounted() {
     const assistants = await getAllSessions();
-    if(assistants.code===200){
-      this.assistants=assistants.map((t) => {
+    if(assistants && assistants.code===200 && assistants.data){
+      this.assistants=assistants.data.map((t) => {
         return {
           label: t,
           value: t
@@ -120,11 +120,11 @@ export default {
     }
     if(this.assistants.length===0) {
       this.assistants.push({
-        label: "默认",
+        label: "default",
         value: "default"
       })
     }
-    this.activeSessionId = this.assistants[0].val;
+    this.activeSessionId = this.assistants[0].label;
     window.localStorage.setItem("sessionId",this.activeSessionId);
     await this.fetchChatHistory(this.activeSessionId);
   },
@@ -137,15 +137,13 @@ export default {
     async fetchChatHistory(sessionId) {
       this.messages = [{isUser: false, content: "", loading: true}]
       let res = await getHistoryMessages(sessionId)
-      if(res.code===200) {
-         res = res.data
+      if (res && res.code === 200 && res.data) {
+        this.messages = res.data.map((x) => ({
+          isUser: x.role === "USER",
+          content: x.content,
+          loading: false
+        }));
       }
-      this.messages = res.map((x) => ({
-        isUser: x.role === "user",
-        content: x.content,
-        loading: false
-      }));
-
       this.scrollToBottom();
     },
 
@@ -167,7 +165,7 @@ export default {
       const loadingIndex = this.messages.push({isUser: false, content: "", loading: true}) - 1;
 
       let finalQuery = await resolveQuery(content);
-      if(finalQuery.code===200) {
+      if(finalQuery && finalQuery.code===200) {
         finalQuery = finalQuery.data;
       }else{
         return;
