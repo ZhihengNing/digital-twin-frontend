@@ -43,6 +43,13 @@ export default {
       sideOpen: false
     };
   },
+  mounted(){
+    this.scene= "test_scene"
+    window.localStorage.setItem("scene",this.scene)
+  },
+  methods: {
+
+  },
   computed: {
     leftSpan() {
       return this.sideOpen ? 11 : 16;

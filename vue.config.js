@@ -11,12 +11,12 @@ module.exports = defineConfig({
         },
         secure: false
       },
-      '/api': {  //需要代理的接口
+      '/apiSever': {  //需要代理的接口
         target: 'http://100.84.26.208:12001', //目标服务器
         //target:'http://127.0.0.1:9101', //目标服务器
         changeOrigin: true,//是否跨域
         pathRewrite: {
-          '^/api': ''
+          '^/apiSever': ''
         },
         secure: false
       },

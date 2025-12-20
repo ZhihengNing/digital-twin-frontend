@@ -4,7 +4,7 @@
     <div class="rg-header">
       <div class="rg-title">
         <span class="rg-dot"></span>
-        <span>{{ title }}</span>
+        <span>数字孪生场景{{scene}}</span>
       </div>
       <div class="rg-actions">
         <button class="rg-btn" @click="fitView">自适应</button>
@@ -28,29 +28,41 @@
           <div class="rg-avatar">{{ (selectedNode && selectedNode.name || '?').slice(0, 1) }}</div>
           <div class="rg-drawer-meta">
             <div class="rg-name">{{ selectedNode ? selectedNode.name : '' }}</div>
+
+            <!-- ✅ 不显示节点 ID，只显示分类（显示 name） -->
             <div class="rg-sub">
-              <span class="rg-pill">ID: {{ selectedNode ? selectedNode.id : '' }}</span>
               <span class="rg-pill" v-if="selectedNode && selectedNode.category != null">
-                分类: {{ selectedNode.category }}
+                分类: {{ categoryName }}
               </span>
             </div>
           </div>
         </div>
 
         <div class="rg-head-actions">
-          <button class="rg-mini-btn" @click="copyJsonTop" :disabled="topLoading || !selectedNode">复制上面JSON</button>
-          <button class="rg-mini-btn" @click="copyJsonBottom" :disabled="bottomLoading">复制下面JSON</button>
           <i class="el-icon-close rg-close" @click="drawerVisible = false"></i>
         </div>
       </div>
 
       <div class="rg-drawer-body">
         <div class="rg-json-stack" :style="stackStyle">
+          <!-- TOP JSON：实例 -->
           <div class="rg-json-panel">
             <div class="rg-json-top">
               <span class="rg-json-badge">实例 JSON（getInstance）</span>
-              <span class="rg-json-hint" v-if="topLoading">加载中…</span>
-              <span class="rg-json-hint" v-else>已加载</span>
+
+              <!-- ✅ 右上角：加载中显示文字；加载完显示复制按钮 -->
+              <div class="rg-json-right">
+                <span class="rg-json-hint" v-if="topLoading">加载中…</span>
+                <button
+                    v-else
+                    class="rg-mini-btn"
+                    @click="copyJsonTop"
+                    :disabled="!topData"
+                    title="复制实例 JSON"
+                >
+                  复制
+                </button>
+              </div>
             </div>
 
             <div class="rg-json-loading" v-if="topLoading">
@@ -63,8 +75,20 @@
           <div class="rg-json-panel">
             <div class="rg-json-top">
               <span class="rg-json-badge">本体的 DTDL 定义（getModelById）</span>
-              <span class="rg-json-hint" v-if="bottomLoading">加载中…</span>
-              <span class="rg-json-hint" v-else>已加载</span>
+
+              <!-- ✅ 右上角：加载中显示文字；加载完显示复制按钮 -->
+              <div class="rg-json-right">
+                <span class="rg-json-hint" v-if="bottomLoading">加载中…</span>
+                <button
+                    v-else
+                    class="rg-mini-btn"
+                    @click="copyJsonBottom"
+                    :disabled="!bottomData"
+                    title="复制模型 JSON"
+                >
+                  复制
+                </button>
+              </div>
             </div>
 
             <div class="rg-json-loading" v-if="bottomLoading">
@@ -118,12 +142,13 @@ export default {
       // 全图加载状态（可选）
       graphLoading: false,
 
-      // 防止快速点击导致旧请求回写
+      // 防止快速点击导致旧请求回写（可选：你也可以用它做竞态保护）
       _reqToken: 0
     };
   },
   computed: {
     stackStyle() {
+      // ✅ 4/10 + 6/10 通过 fr 实现
       return { gridTemplateRows: `${this.ratioTop}fr ${this.ratioBottom}fr` };
     },
     topJsonText() {
@@ -131,11 +156,19 @@ export default {
     },
     bottomJsonText() {
       return this.bottomData ? this.pretty(this.bottomData) : "{}";
+    },
+
+    // ✅ 分类显示为 categories[x].name，而不是数字
+    categoryName() {
+      if (!this.selectedNode) return "";
+      const idx = this.selectedNode.category;
+      const c = this.categories && this.categories[idx];
+      return c && c.name ? c.name : String(idx ?? "");
     }
   },
   async mounted() {
-    await this.loadAllGraph();  // ✅ 初始化拉全图
-    this.initChart();           // ✅ 再 init ECharts
+    await this.loadAllGraph(); // ✅ 初始化拉全图
+    this.initChart(); // ✅ 再 init ECharts
     window.addEventListener("resize", this.onResize);
   },
   beforeDestroy() {
@@ -154,8 +187,11 @@ export default {
       if (this.chart) this.chart.resize();
     },
     pretty(obj) {
-      try { return JSON.stringify(obj, null, 2); }
-      catch (e) { return String(obj); }
+      try {
+        return JSON.stringify(obj, null, 2);
+      } catch (e) {
+        return String(obj);
+      }
     },
 
     async copyText(str) {
@@ -166,8 +202,12 @@ export default {
         this.$message && this.$message.error("复制失败（浏览器权限限制）");
       }
     },
-    copyJsonTop() { this.copyText(this.topJsonText); },
-    copyJsonBottom() { this.copyText(this.bottomJsonText); },
+    copyJsonTop() {
+      this.copyText(this.topJsonText);
+    },
+    copyJsonBottom() {
+      this.copyText(this.bottomJsonText);
+    },
 
     async loadAllGraph(force = false) {
       if (!force && (this.nodes.length || this.relations.length)) return;
@@ -176,12 +216,12 @@ export default {
       try {
         const data = await getAllGraph(this.scene);
 
-        this.categories = (data && data.categories && data.categories.length)
+        this.categories = data && data.categories && data.categories.length
             ? data.categories
             : [{ name: "默认" }];
 
-        this.nodes = (data && data.nodes) ? data.nodes : [];
-        this.relations = (data && (data.relations || data.links))
+        this.nodes = data && data.nodes ? data.nodes : [];
+        this.relations = data && (data.relations || data.links)
             ? (data.relations || data.links)
             : [];
       } catch (e) {
@@ -217,7 +257,11 @@ export default {
       this.bottomLoading = true;
       this.topData = null;
       this.bottomData = null;
-      const category = node ? this.categories[node.category].name : null;
+
+      // ✅ 更稳健：避免 categories 越界导致报错
+      const category = node && this.categories && this.categories[node.category]
+          ? this.categories[node.category].name
+          : null;
       const name = node ? node.name : null;
 
       try {
@@ -225,16 +269,17 @@ export default {
           getInstance(this.scene, category, name),
           getModelById(category)
         ]);
-        console.log(insRes)
-        console.log(modelRes)
-        if(insRes.code===200){
-          this.topData=insRes.data.instance;
-          console.log(this.topData)
+
+        if (insRes && insRes.code === 200) {
+          this.topData = insRes.data.instance
+        } else {
+          this.topData = null;
         }
 
-        if(modelRes.code===200) {
-          this.bottomData = modelRes.data.model;
-          console.log(this.bottomData)
+        if (modelRes && modelRes.code === 200) {
+          this.bottomData = modelRes.data.model
+        } else {
+          this.bottomData = null;
         }
       } catch (e) {
         this.$message && this.$message.error("节点详情加载失败");
@@ -298,10 +343,10 @@ export default {
           formatter: (p) => {
             if (p.dataType === "node") {
               const d = p.data && p.data.__rawNode ? p.data.__rawNode : p.data;
+              // ✅ 不显示 ID
               return `
                 <div style="min-width:180px">
                   <div style="font-weight:700;font-size:13px;margin-bottom:6px;">${d.name}</div>
-                  <div style="opacity:.85;font-size:12px;">ID: ${d.id}</div>
                 </div>
               `;
             }
@@ -538,24 +583,20 @@ export default {
   height: calc(100% - 0px);
 }
 
-/* ✅ 两个 JSON 框容器：用 grid 做 4:6 比例 */
-.rg-json-stack {
-  height: calc(100vh - 56px - 64px); /* 大致可用高度，不精确也没关系 */
-  min-height: 420px;
+.rg-json-stack{
+  flex: 1;
+  min-height: 0;
   display: grid;
   gap: 12px;
+  overflow: hidden;
 }
 
-/* JSON Panel */
-.rg-json-panel {
-  border-radius: 14px;
-  overflow: hidden;
-  border: var(--ctl-border);
-  background: rgba(0, 0, 0, 0.18);
-
+/* ✅ 每个面板本身不滚，pre 才滚 */
+.rg-json-panel{
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0; /* 关键：允许内部滚动 */
+  overflow: hidden;
 }
 
 .rg-json-top {
@@ -565,6 +606,12 @@ export default {
   padding: 10px 12px;
   border-bottom: var(--divider);
   background: var(--header-bg);
+}
+
+.rg-json-right{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .rg-json-badge {
@@ -614,5 +661,21 @@ export default {
 }
 .rg-json-view::-webkit-scrollbar-thumb:hover {
   background: var(--sb-thumb-grad-hover);
+}
+
+::v-deep .rg-drawer .el-drawer__body{
+  height: 100%;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ✅ drawer-body 撑满并禁滚 */
+.rg-drawer-body{
+  padding: 14px 16px 18px 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
 }
 </style>

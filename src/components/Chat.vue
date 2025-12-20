@@ -7,7 +7,7 @@
           <span class="dot" />
 
           <el-select
-              v-model="activeAssistant"
+              v-model="activeSessionId"
               size="mini"
               class="assistant-select"
               popper-class="assistant-popper"
@@ -97,7 +97,6 @@
 
 <script>
 import {getAllSessions, getHistoryMessages, resolveQuery} from "@/api/chat";
-import {getUniqueId} from "@/utils/util";
 
 export default {
   name: "ChatGPTLikeDialog",
@@ -106,23 +105,41 @@ export default {
       inputContent: "",
       messages: [],
       assistants: [],
-      activeAssistant: ""
+      activeSessionId: ""
     };
   },
-  mounted() {
-    this.assistants = getAllSessions();
-    this.activeAssistant = this.assistants.length > 0 ? this.assistants[0].val : getUniqueId();
-    this.fetchChatHistory(this.activeAssistant);
+  async mounted() {
+    const assistants = await getAllSessions();
+    if(assistants.code===200){
+      this.assistants=assistants.map((t) => {
+        return {
+          label: t,
+          value: t
+        }
+      });
+    }
+    if(this.assistants.length===0) {
+      this.assistants.push({
+        label: "默认",
+        value: "default"
+      })
+    }
+    this.activeSessionId = this.assistants[0].val;
+    window.localStorage.setItem("sessionId",this.activeSessionId);
+    await this.fetchChatHistory(this.activeSessionId);
   },
   methods: {
     async onUserSessionChange(val) {
+      window.localStorage.setItem("sessionId",val);
       await this.fetchChatHistory(val);
     },
 
     async fetchChatHistory(sessionId) {
-      this.messages = [{isUser: false, content: "", loading: true}];
-
-      const res = await getHistoryMessages(sessionId)
+      this.messages = [{isUser: false, content: "", loading: true}]
+      let res = await getHistoryMessages(sessionId)
+      if(res.code===200) {
+         res = res.data
+      }
       this.messages = res.map((x) => ({
         isUser: x.role === "user",
         content: x.content,
@@ -149,7 +166,12 @@ export default {
 
       const loadingIndex = this.messages.push({isUser: false, content: "", loading: true}) - 1;
 
-      const finalQuery = await resolveQuery(content);
+      let finalQuery = await resolveQuery(content);
+      if(finalQuery.code===200) {
+        finalQuery = finalQuery.data;
+      }else{
+        return;
+      }
 
       this.messages.splice(loadingIndex, 1, {
         isUser: false,
