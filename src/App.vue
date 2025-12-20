@@ -3,24 +3,23 @@
     <div class="chat-page">
       <el-row class="full-row">
         <el-col :span="leftSpan" class="full-col">
-          <Graph
-              class="full-content"
-              :scene="scene"
-          />
+          <Graph class="full-content" :scene="scene" />
         </el-col>
 
-        <!-- 中间：Chat -->
         <el-col :span="chatSpan" class="full-col">
           <Chat
               class="full-content"
               @toggle-side="sideOpen = !sideOpen"
+              @tool-event="onToolEvent"
+              @session-change="onSessionChange"
           />
         </el-col>
 
-        <!-- 右侧：SidePanel（可展开） -->
         <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
           <SidePanel
               class="full-content"
+              :events="currentSessionLogs"
+              :session-id="activeSessionId"
               @close="sideOpen = false"
           />
         </el-col>
@@ -40,25 +39,49 @@ export default {
   data() {
     return {
       scene: "test_scene",
-      sideOpen: false
+      sideOpen: false,
+
+      // ✅ 当前 session
+      activeSessionId: window.localStorage.getItem("sessionId") || "default",
+
+      // ✅ 按 session 存日志：{ [sessionId]: [event, event, ...] }
+      logsBySession: {}
     };
   },
-  mounted(){
-    this.scene= "test_scene"
-    window.localStorage.setItem("scene",this.scene)
-  },
-  methods: {
+  mounted() {
+    this.scene = "test_scene";
+    window.localStorage.setItem("scene", this.scene);
 
+    // 确保 default 有数组
+    if (!this.logsBySession[this.activeSessionId]) {
+      this.$set(this.logsBySession, this.activeSessionId, []);
+    }
   },
   computed: {
-    leftSpan() {
-      return this.sideOpen ? 11 : 16;
+    currentSessionLogs() {
+      return this.logsBySession[this.activeSessionId] || [];
     },
-    chatSpan() {
-      return this.sideOpen ? 7 : 8;
+    leftSpan() { return this.sideOpen ? 11 : 16; },
+    chatSpan() { return this.sideOpen ? 7 : 8; },
+    sideSpan() { return 6; }
+  },
+  methods: {
+    onSessionChange(sessionId) {
+      this.activeSessionId = sessionId || "default";
+      if (!this.logsBySession[this.activeSessionId]) {
+        this.$set(this.logsBySession, this.activeSessionId, []);
+      }
     },
-    sideSpan() {
-      return 6;
+    onToolEvent(ev) {
+      // ev 必须带 sessionId
+      const sid = ev?.sessionId || this.activeSessionId || "default";
+      if (!this.logsBySession[sid]) {
+        this.$set(this.logsBySession, sid, []);
+      }
+      this.logsBySession[sid].push(ev);
+
+      // 如果你希望“有日志就自动打开侧边栏”，可打开下面注释
+      // if (!this.sideOpen) this.sideOpen = true;
     }
   }
 };

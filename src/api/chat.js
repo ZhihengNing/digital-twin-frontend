@@ -1,66 +1,91 @@
-// ✅ 调后端：输入 query，返回 query（若后端空则回退原值）
-import {apiAgentClient} from "@/api/apiClient";
+// src/api/chat.js
+import {apiAgentClient} from "@/api/apiClient"; // 你项目里原本怎么引就怎么引
 
-export async function resolveQuery(query) {
-    const data={
-        message:query
-    }
+export async function resolveQuery(query, options) {
+    const data = { message: query };
+
     try {
-        const response = await apiAgentClient.post("/agent/chat", data,{
-            headers: {
-                "sessionId":window.localStorage.getItem("sessionId"),
-                "scene":window.localStorage.getItem("scene")
+        const response = await apiAgentClient.post(
+            "/agent/chat",
+            data,
+            {
+                headers: {
+                    sessionId: window.localStorage.getItem("sessionId"),
+                    scene: window.localStorage.getItem("scene")
+                },
+                // ✅ 关键：axios 1.x 支持 AbortController.signal
+                signal: options?.signal
             }
-        });
-        console.log(response)
+        );
         return response.data;
     } catch (error) {
-        console.error('Error during get Inversion Result by id:', error);
+        // 被终止不当作“错误日志”刷屏
+        const msg = String(error?.message || "").toLowerCase();
+        const isAbort =
+            error?.name === "AbortError" ||
+            msg.includes("aborted") ||
+            msg.includes("canceled") ||
+            msg.includes("cancelled");
+
+        if (!isAbort) {
+            console.error("Error during resolveQuery:", error);
+        }
+        throw error; // ✅ 抛给 UI 做“终止/失败”区分
     }
-    return null;
 }
 
 export async function getHistoryMessages() {
-        try {
-        const response = await apiAgentClient.post("/agent/history",null,{
-            headers: {
-                "sessionId":window.localStorage.getItem("sessionId"),
-                "scene":window.localStorage.getItem("scene")
+    try {
+        const response = await apiAgentClient.post(
+            "/agent/history",
+            null,
+            {
+                headers: {
+                    sessionId: window.localStorage.getItem("sessionId"),
+                    scene: window.localStorage.getItem("scene")
+                }
             }
-        });
-        return response.data
+        );
+        return response.data;
     } catch (error) {
-        console.error('Error during get Inversion Result by id:', error);
+        console.error("Error during getHistoryMessages:", error);
     }
     return null;
-    // return sessionId === "ops"
-    //     ? [
-    //         {role: "assistant", content: "我是运维助手：你可以问我 Redis/Neo4j/服务器问题。"},
-    //         {role: "user", content: "neo4j 远程连不上怎么办？"},
-    //         {role: "assistant", content: "先检查 7687/7474 端口监听、防火墙、docker 端口映射。"}
-    //     ]
-    //     : sessionId === "kb"
-    //         ? [{role: "assistant", content: "我是知识库助手：我可以从你的本体/文档里检索答案。"}]
-    //         : [{role: "assistant", content: "我是智能对话助手：我们从这里开始对话吧。"}];
 }
 
-
-export async function getAllSessions(){
+export async function getAllSessions() {
     try {
-        const response = await apiAgentClient.post("/agent/sessions",null,{
-            headers: {
-                "scene":window.localStorage.getItem("scene")
+        const response = await apiAgentClient.post(
+            "/agent/sessions",
+            null,
+            {
+                headers: {
+                    scene: window.localStorage.getItem("scene")
+                }
             }
-        });
-        return response.data
+        );
+        return response.data;
     } catch (error) {
-        console.error('Error during get Inversion Result by id:', error);
+        console.error("Error during getAllSessions:", error);
     }
     return null;
+}
 
-    // return [
-    //     { label: "智能对话助手", value: "default" },
-    //     { label: "运维助手", value: "ops" },
-    //     { label: "知识库助手", value: "kb" }
-    // ];
+export async function delSession() {
+    try {
+        const response = await apiAgentClient.post(
+            "/agent/delSessions",
+            null,
+            {
+                headers: {
+                    scene: window.localStorage.getItem("scene"),
+                    sessionId: window.localStorage.getItem("sessionId")
+                }
+            }
+        );
+        return response.data;
+    } catch (error) {
+        console.error("Error during delSession:", error);
+    }
+    return null;
 }

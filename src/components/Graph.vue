@@ -48,7 +48,7 @@
           <!-- TOP JSON：实例 -->
           <div class="rg-json-panel">
             <div class="rg-json-top">
-              <span class="rg-json-badge">实例 JSON（getInstance）</span>
+              <span class="rg-json-badge">实例数据 </span>
 
               <!-- ✅ 右上角：加载中显示文字；加载完显示复制按钮 -->
               <div class="rg-json-right">
@@ -74,7 +74,7 @@
           <!-- BOTTOM JSON：模型 -->
           <div class="rg-json-panel">
             <div class="rg-json-top">
-              <span class="rg-json-badge">本体的 DTDL 定义（getModelById）</span>
+              <span class="rg-json-badge">本体定义</span>
 
               <!-- ✅ 右上角：加载中显示文字；加载完显示复制按钮 -->
               <div class="rg-json-right">
