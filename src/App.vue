@@ -20,7 +20,7 @@
         <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
           <SidePanel
               class="full-content"
-              :events="currentSessionLogs"
+              :groups="currentSessionLogs"
               :session-id="activeSessionId"
               @close="sideOpen = false"
           />
@@ -34,6 +34,7 @@
 import Chat from "@/components/Chat.vue";
 import Graph from "@/components/Graph.vue";
 import SidePanel from "@/components/SidePanel.vue";
+import { getHistoryLog } from "@/api/chat";
 
 export default {
   name: "App",
@@ -46,11 +47,15 @@ export default {
       // ✅ 不再默认 default
       activeSessionId: null,
 
-      // ✅ 按 session 存日志：{ [sessionId]: [event, ...] }
-      logsBySession: {},
-
       // ✅ 控制 Chat 组件重建（避免 createMode 等 UI 状态残留）
-      chatKey: 1
+      chatKey: 1,
+
+      /**
+       * ✅ 右侧“框框”数据结构（每次 query 一个框）
+       * logGroupsBySession: { [sessionId]: Array<{id, ts, sessionId, text, source}> }
+       * source: "history" | "stream"（可选，用于你调试）
+       */
+      logGroupsBySession: {} // { [sessionId]: Array<group> }
     };
   },
 
@@ -63,15 +68,23 @@ export default {
     this.activeSessionId = saved && String(saved).trim() ? saved : null;
 
     // 只有真实 session 才初始化日志数组
-    if (this.activeSessionId && !this.logsBySession[this.activeSessionId]) {
-      this.$set(this.logsBySession, this.activeSessionId, []);
+    if (this.activeSessionId && !this.logGroupsBySession[this.activeSessionId]) {
+      this.$set(this.logGroupsBySession, this.activeSessionId, []);
+    }
+  },
+
+  watch: {
+    // ✅ 每次打开侧边栏：先拉一次 historyLog（List<String> -> 多个框）
+    async sideOpen(val) {
+      if (!val) return;
+      await this.loadHistoryLogsForActiveSession();
     }
   },
 
   computed: {
     currentSessionLogs() {
-      if (!this.activeSessionId) return [];
-      return this.logsBySession[this.activeSessionId] || [];
+      const sid = this.activeSessionId;
+      return (this.logGroupsBySession[sid] || []);
     },
     leftSpan() { return this.sideOpen ? 11 : 16; },
     chatSpan() { return this.sideOpen ? 7 : 8; },
@@ -79,6 +92,42 @@ export default {
   },
 
   methods: {
+    async loadHistoryLogsForActiveSession() {
+      const sid = this.activeSessionId && String(this.activeSessionId).trim()
+          ? String(this.activeSessionId).trim()
+          : null;
+
+      if (!sid) {
+        return;
+      }
+
+      // ✅ 确保有数组
+      if (!this.logGroupsBySession[sid]) this.$set(this.logGroupsBySession, sid, []);
+
+      // ✅ 拉取 historyLog：后端返回 List<String>
+      const res = await getHistoryLog();
+      const list = res?.data || res || [];
+
+      // 若不是数组，兜底成空
+      const arr = Array.isArray(list) ? list : [];
+
+      // ✅ 转成“框框”
+      // 约定：每个 string = 一个 query 的完整日志文本
+      const groupsFromHistory = arr
+          .filter(s => s != null && String(s).trim() !== "")
+          .map((text, idx) => ({
+            id: `hist_${idx + 1}`,
+            ts: Date.now(), // 你如果后端没有时间戳，只能前端用当前时间
+            sessionId: sid,
+            text: String(text),
+            source: "history"
+          }));
+
+      // ✅ 打开侧边栏时：以 history 为准，先覆盖
+      // 后续新的 query 实时日志会以 groupId(=token) 追加成新的框
+      this.$set(this.logGroupsBySession, sid, groupsFromHistory);
+    },
+
     onSessionChange(sessionId) {
       const sid = sessionId && String(sessionId).trim() ? sessionId : null;
       this.activeSessionId = sid;
@@ -90,8 +139,13 @@ export default {
         window.localStorage.removeItem("sessionId");
       }
 
-      if (sid && !this.logsBySession[sid]) {
-        this.$set(this.logsBySession, sid, []);
+      if (sid && !this.logGroupsBySession[sid]) {
+        this.$set(this.logGroupsBySession, sid, []);
+      }
+
+      // ✅ 如果侧边栏此刻是打开的，切换 session 也要立刻拉取对应 historyLog
+      if (this.sideOpen) {
+        this.loadHistoryLogsForActiveSession();
       }
 
       /**
@@ -102,19 +156,34 @@ export default {
       // this.chatKey++;
     },
 
-    onToolEvent(ev) {
-      const sid = ev?.sessionId && String(ev.sessionId).trim() ? ev.sessionId : null;
+    onToolEvent(evt) {
+      if (!evt || evt.type !== "tool.log") return;
 
-      // ✅ 没有 session 的日志直接丢弃（符合“未开启对话不会有日志”）
-      if (!sid) return;
+      const sid = evt.sessionId || this.activeSessionId || "default";
+      const groupId = evt.logGroupId || "unknown";
+      const msg = evt?.data?.message || "";
 
-      if (!this.logsBySession[sid]) {
-        this.$set(this.logsBySession, sid, []);
+      if (!this.logGroupsBySession[sid]) this.$set(this.logGroupsBySession, sid, []);
+
+      const arr = this.logGroupsBySession[sid];
+
+      // 找到同一个 groupId 的框（一次 query 一个 groupId）
+      let g = arr.find(x => String(x.id) === String(groupId));
+
+      if (!g) {
+        // ✅ 新建一个框（一次提问一个框）
+        g = {
+          id: groupId,
+          ts: evt.ts || Date.now(),
+          sessionId: sid,
+          text: "",
+          source: "stream"
+        };
+        arr.push(g);
       }
-      this.logsBySession[sid].push(ev);
 
-      // 如果你希望“有日志就自动打开侧边栏”，可打开下面注释
-      // if (!this.sideOpen) this.sideOpen = true;
+      // ✅ 追加到同一个框
+      g.text += (msg + "\n");
     }
   }
 };
