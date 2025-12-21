@@ -31,7 +31,6 @@
             </el-dropdown-menu>
           </el-dropdown>
 
-          <!-- ✅ 无会话列表时也显示加号按钮，点击显示输入框 -->
           <el-button
               v-if="!createMode"
               class="icon-btn"
@@ -42,6 +41,22 @@
               @click="openCreateInline"
               title="新建对话"
           />
+
+          <!-- ✅ 输入框：只有点击加号(createMode=true)才显示 -->
+          <div v-if="createMode" class="create-inline">
+            <el-input
+                ref="createInput"
+                v-model="createName"
+                size="mini"
+                class="create-input"
+                placeholder="新对话名称…"
+                maxlength="40"
+                @keyup.enter.native="confirmCreateInline"
+                @keyup.esc.native="cancelCreateInline"
+            />
+            <el-button size="mini" class="create-ok" @click="confirmCreateInline">确定</el-button>
+            <el-button size="mini" class="create-cancel" @click="cancelCreateInline">取消</el-button>
+          </div>
 
           <!-- 删除对话：只有有 activeSessionId 时显示 -->
           <el-popconfirm
@@ -62,21 +77,6 @@
             />
           </el-popconfirm>
 
-          <!-- ✅ 恢复 v-else：无会话列表时点击加号也显示输入框 -->
-          <div v-else class="create-inline">
-            <el-input
-                ref="createInput"
-                v-model="createName"
-                size="mini"
-                class="create-input"
-                placeholder="新对话名称…"
-                maxlength="40"
-                @keyup.enter.native="confirmCreateInline"
-                @keyup.esc.native="cancelCreateInline"
-            />
-            <el-button size="mini" class="create-ok" @click="confirmCreateInline">确定</el-button>
-            <el-button size="mini" class="create-cancel" @click="cancelCreateInline">取消</el-button>
-          </div>
         </div>
 
         <!-- 三个点 -->
@@ -230,12 +230,9 @@ export default {
       messages: [],
       assistants: [],
 
-      // ✅ 初始必须是 null & 不会触发输入框
       activeSessionId: null,
-
       sending: false,
 
-      // ✅ 初始必须 false：页面第一次渲染绝不显示输入框
       createMode: false,
       createName: "",
 
@@ -252,9 +249,7 @@ export default {
     }
   },
   async mounted() {
-    // ✅ 第一层保险：无论如何都先关掉（防止缓存/父组件残留）
     this.cancelCreateInline();
-
     await this.refreshSessionsAndInit();
     if (this.hasSession) this.$emit("session-change", this.activeSessionId);
   },
@@ -263,14 +258,14 @@ export default {
   },
   methods: {
     async refreshSessionsAndInit() {
-      // ✅ 第二层保险：每次刷新 session 都强制关闭输入框
+      // 每次刷新都强制关闭输入框（避免自动弹）
       this.cancelCreateInline();
 
       const res = await getAllSessions();
       const arr = res?.data || res || [];
       this.assistants = (arr || []).map(t => ({ label: t, value: t }));
 
-      // ✅ getAllSessions 为空：不自动选中、也不弹输入框
+      // 没有 session：清空状态
       if (!this.assistants.length) {
         this.activeSessionId = null;
         window.localStorage.removeItem("sessionId");
@@ -279,21 +274,29 @@ export default {
         return;
       }
 
-      // 有列表时：尝试恢复 localStorage
+      // 有列表：优先恢复 saved；否则默认选第一个
       const saved = window.localStorage.getItem("sessionId");
       const exists =
           saved && this.assistants.some(x => String(x.value).toLowerCase() === String(saved).toLowerCase());
 
       if (exists) {
         this.activeSessionId = saved;
+      } else {
+        // ✅ 默认选第一个 session
+        const first = this.assistants[0]?.value;
+        this.activeSessionId = first || null;
+        if (first) window.localStorage.setItem("sessionId", first);
+        else window.localStorage.removeItem("sessionId");
+      }
+
+      // 拉取历史
+      if (this.hasSession) {
         await this.fetchChatHistory();
       } else {
-        this.activeSessionId = null;
-        window.localStorage.removeItem("sessionId");
         this.messages = [];
       }
 
-      // ✅ 第三层保险：结束时再关一次，保证不会“自动显示输入框”
+      // 最后再关一次，保证不冒出输入框
       this.cancelCreateInline();
     },
 
@@ -326,7 +329,6 @@ export default {
       this.scrollToBottom();
     },
 
-    // ✅ 恢复原有逻辑：无论是否有会话列表，点击加号都显示输入框
     openCreateInline() {
       if (this.sending) return;
       this.createMode = true;
@@ -345,11 +347,12 @@ export default {
         return this.$message.warning("对话名称已存在");
       }
 
+      // 只做前端新增，你说“用户发话才会在后台保存”
       this.assistants.unshift({ label: name, value: name });
       this.activeSessionId = name;
       window.localStorage.setItem("sessionId", name);
 
-      this.messages = []; // 你要求：用户发话才会保存
+      this.messages = [];
       this.cancelCreateInline();
       this.$emit("session-change", name);
     },
@@ -358,12 +361,23 @@ export default {
       if (!this.hasSession) return;
       if (this.sending) return this.$message.warning("正在请求中，请先终止再删除");
 
-      const res = await delSession();
+      // ⚠️ 关键：删除前不要清 sessionId（否则后端可能定位不到要删哪个）
+      const deletingId = this.activeSessionId;
+
+      const res = await delSession(); // 你当前 API 设计：由后端从 sessionId header 或上下文取
       if (!res) return this.$message.error("删除失败");
 
       this.$message.success("删除成功");
 
+      // ✅ 删除成功后再刷新列表，并默认选第一个
       await this.refreshSessionsAndInit();
+
+      // 保险：如果后端其实没删掉（比如接口没生效），避免 UI 停在“已删的 id”
+      if (this.activeSessionId === deletingId) {
+        // refresh 后还一样，说明列表里可能仍有它（或 refresh 未更新）
+        // 这里不强行处理，避免误伤；你可以看后端返回/刷新接口是否真的更新
+      }
+
       this.$emit("session-change", this.activeSessionId);
     },
 
@@ -521,10 +535,6 @@ export default {
 };
 </script>
 
-<!-- 你的样式我不动，保持一致 -->
-<style scoped>
-.message-text { white-space: pre-wrap; word-break: break-word; }
-</style>
 
 <style scoped>
 /* ========== 全局变量定义（确保主题统一） ========== */
@@ -557,6 +567,7 @@ export default {
   --accent: #3b82f6;
   --accent2: #10b981;
 }
+.message-text { white-space: pre-wrap; word-break: break-word; }
 
 /* Card */
 .chat-card {
@@ -778,4 +789,25 @@ export default {
 }
 .send-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
 .send-btn.is-stop{ background: linear-gradient(180deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.78)); }
+
+
+/* ✅ 输入框不要出现滚动条（侧边栏出现时也不出现） */
+.input-box ::v-deep textarea {
+  overflow: hidden !important;        /* 关键：禁止滚动条 */
+  overflow-y: hidden !important;
+  scrollbar-width: none;              /* Firefox */
+  -ms-overflow-style: none;           /* IE/旧 Edge */
+}
+
+/* Chrome / Safari */
+.input-box ::v-deep textarea::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 保险：容器也不要溢出产生滚动条 */
+.chat-input-shell {
+  overflow: hidden;
+}
+
 </style>
