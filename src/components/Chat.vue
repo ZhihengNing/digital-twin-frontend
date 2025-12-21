@@ -76,17 +76,10 @@
                 title="删除当前对话"
             />
           </el-popconfirm>
-
         </div>
 
         <!-- 三个点 -->
-        <el-button
-            class="icon-btn"
-            icon="el-icon-more"
-            circle
-            size="mini"
-            @click="$emit('toggle-side')"
-        />
+        <el-button class="icon-btn" icon="el-icon-more" circle size="mini" @click="$emit('toggle-side')" />
       </div>
 
       <div class="sub">
@@ -254,7 +247,9 @@ export default {
     if (this.hasSession) this.$emit("session-change", this.activeSessionId);
   },
   beforeDestroy() {
-    try { this.logAbortCtl?.abort(); } catch (e) {}
+    try {
+      this.logAbortCtl?.abort();
+    } catch (e) {}
   },
   methods: {
     async refreshSessionsAndInit() {
@@ -263,7 +258,7 @@ export default {
 
       const res = await getAllSessions();
       const arr = res?.data || res || [];
-      this.assistants = (arr || []).map(t => ({ label: t, value: t }));
+      this.assistants = (arr || []).map((t) => ({ label: t, value: t }));
 
       // 没有 session：清空状态
       if (!this.assistants.length) {
@@ -277,7 +272,7 @@ export default {
       // 有列表：优先恢复 saved；否则默认选第一个
       const saved = window.localStorage.getItem("sessionId");
       const exists =
-          saved && this.assistants.some(x => String(x.value).toLowerCase() === String(saved).toLowerCase());
+          saved && this.assistants.some((x) => String(x.value).toLowerCase() === String(saved).toLowerCase());
 
       if (exists) {
         this.activeSessionId = saved;
@@ -320,7 +315,7 @@ export default {
 
       const res = await getHistoryMessages();
       const list = res?.data || res || [];
-      this.messages = (list || []).map(x => ({
+      this.messages = (list || []).map((x) => ({
         isUser: (x.role || "").toUpperCase() === "USER",
         content: x.content || "",
         loading: false
@@ -343,11 +338,11 @@ export default {
       const name = this.createName.trim();
       if (!name) return this.$message.warning("请输入对话名称");
 
-      if (this.assistants.some(x => String(x.value).toLowerCase() === name.toLowerCase())) {
+      if (this.assistants.some((x) => String(x.value).toLowerCase() === name.toLowerCase())) {
         return this.$message.warning("对话名称已存在");
       }
 
-      // 只做前端新增，你说“用户发话才会在后台保存”
+      // 只做前端新增：用户发话才会在后台保存
       this.assistants.unshift({ label: name, value: name });
       this.activeSessionId = name;
       window.localStorage.setItem("sessionId", name);
@@ -361,10 +356,10 @@ export default {
       if (!this.hasSession) return;
       if (this.sending) return this.$message.warning("正在请求中，请先终止再删除");
 
-      // ⚠️ 关键：删除前不要清 sessionId（否则后端可能定位不到要删哪个）
+      // ⚠️ 删除前不要清 sessionId（否则后端可能定位不到要删哪个）
       const deletingId = this.activeSessionId;
 
-      const res = await delSession(); // 你当前 API 设计：由后端从 sessionId header 或上下文取
+      const res = await delSession(); // 由后端从 sessionId header 或上下文取
       if (!res) return this.$message.error("删除失败");
 
       this.$message.success("删除成功");
@@ -372,10 +367,8 @@ export default {
       // ✅ 删除成功后再刷新列表，并默认选第一个
       await this.refreshSessionsAndInit();
 
-      // 保险：如果后端其实没删掉（比如接口没生效），避免 UI 停在“已删的 id”
       if (this.activeSessionId === deletingId) {
-        // refresh 后还一样，说明列表里可能仍有它（或 refresh 未更新）
-        // 这里不强行处理，避免误伤；你可以看后端返回/刷新接口是否真的更新
+        // refresh 后还一样：可能后端没删掉或 refresh 未更新，这里不强行改，避免误伤
       }
 
       this.$emit("session-change", this.activeSessionId);
@@ -393,12 +386,17 @@ export default {
       if (!this.sending) return;
 
       this.requestToken++;
-      try { this.logAbortCtl?.abort(); } catch (e) {}
+      try {
+        this.logAbortCtl?.abort();
+      } catch (e) {}
       this.logAbortCtl = null;
 
       let idx = -1;
       for (let i = this.messages.length - 1; i >= 0; i--) {
-        if (this.messages[i] && this.messages[i].loading) { idx = i; break; }
+        if (this.messages[i] && this.messages[i].loading) {
+          idx = i;
+          break;
+        }
       }
       if (idx >= 0) this.messages.splice(idx, 1);
 
@@ -456,10 +454,7 @@ export default {
         this.startLogStream(content, myToken).catch((e) => {
           const msg = String(e?.message || "").toLowerCase();
           const isAbort =
-              e?.name === "AbortError" ||
-              msg.includes("aborted") ||
-              msg.includes("canceled") ||
-              msg.includes("cancelled");
+              e?.name === "AbortError" || msg.includes("aborted") || msg.includes("canceled") || msg.includes("cancelled");
 
           if (!isAbort && myToken === this.requestToken) {
             this.$emit("tool-event", {
@@ -484,15 +479,14 @@ export default {
           });
         }
 
-        try { this.logAbortCtl?.abort(); } catch (e) {}
+        try {
+          this.logAbortCtl?.abort();
+        } catch (e) {}
         this.logAbortCtl = null;
       } catch (e) {
         const msg = String(e?.message || "").toLowerCase();
         const isAbort =
-            e?.name === "AbortError" ||
-            msg.includes("aborted") ||
-            msg.includes("canceled") ||
-            msg.includes("cancelled");
+            e?.name === "AbortError" || msg.includes("aborted") || msg.includes("canceled") || msg.includes("cancelled");
 
         if (myToken !== this.requestToken || isAbort) {
           if (aiIdx >= 0 && aiIdx < this.messages.length && this.messages[aiIdx]?.loading) {
@@ -518,7 +512,9 @@ export default {
       } finally {
         if (myToken === this.requestToken) {
           this.sending = false;
-          try { this.logAbortCtl?.abort(); } catch (e) {}
+          try {
+            this.logAbortCtl?.abort();
+          } catch (e) {}
           this.logAbortCtl = null;
         }
         this.scrollToBottom();
@@ -535,9 +531,8 @@ export default {
 };
 </script>
 
-
 <style scoped>
-/* ========== 全局变量定义（确保主题统一） ========== */
+/* ========== 主题变量 ========== */
 :root {
   --card-bg-grad: linear-gradient(180deg, #111827, #0f172a);
   --card-border: 1px solid rgba(255, 255, 255, 0.08);
@@ -553,7 +548,7 @@ export default {
 
   --sb-track: rgba(15, 23, 42, 0.8);
   --sb-thumb-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.42), rgba(255, 255, 255, 0.18));
-  --sb-thumb-grad-hover: linear-gradient(180deg, rgba(96, 165, 250, 0.60), rgba(255, 255, 255, 0.22));
+  --sb-thumb-grad-hover: linear-gradient(180deg, rgba(96, 165, 250, 0.6), rgba(255, 255, 255, 0.22));
 
   --bubble-radius: 14px;
   --bubble-border: 1px solid rgba(255, 255, 255, 0.08);
@@ -566,8 +561,20 @@ export default {
 
   --accent: #3b82f6;
   --accent2: #10b981;
+
+  /* ✅ 更舒服的字体栈（中英都好看） */
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+  "Noto Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Apple Color Emoji",
+  "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+  "PingFang SC", "Microsoft YaHei";
 }
-.message-text { white-space: pre-wrap; word-break: break-word; }
+
+.message-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-ui);
+}
 
 /* Card */
 .chat-card {
@@ -581,6 +588,9 @@ export default {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Header */
@@ -601,10 +611,14 @@ export default {
   gap: 10px;
   min-width: 0;
 }
-.sub { margin-top: 6px; font-size: 12px; color: var(--t-sub); }
+.sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--t-sub);
+}
 
 /* Session pill */
-.session-pill{
+.session-pill {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -612,37 +626,52 @@ export default {
   border-radius: 999px;
   cursor: pointer;
   user-select: none;
-  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.035));
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.05);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.035));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
-.session-pill:hover{
-  background: linear-gradient(180deg, rgba(255,255,255,0.085), rgba(255,255,255,0.045));
-  border-color: rgba(255,255,255,0.14);
+.session-pill:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.045));
+  border-color: rgba(255, 255, 255, 0.14);
 }
-.session-pill.disabled{ opacity: 0.65; cursor: not-allowed; }
-.dot{
-  width: 10px; height: 10px; border-radius: 999px;
+.session-pill.disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
   background: rgba(34, 197, 94, 0.95);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.22), 0 0 22px rgba(34, 197, 94, 0.20);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.22), 0 0 22px rgba(34, 197, 94, 0.2);
 }
-.session-name{
-  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; font-weight: 900; letter-spacing: 0.2px;
-  color: rgba(255,255,255,0.90);
+.session-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.9);
 }
-.caret{ color: rgba(255,255,255,0.50); font-size: 12px; }
-.session-pill:hover .caret{ color: rgba(255,255,255,0.72); }
+.caret {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+.session-pill:hover .caret {
+  color: rgba(255, 255, 255, 0.72);
+}
 
 /* Dropdown */
 ::v-deep .session-dropdown {
   background: rgba(10, 16, 28, 0.98) !important;
-  border: 1px solid rgba(255,255,255,0.10) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 14px !important;
   padding: 8px 6px !important;
-  box-shadow: 0 22px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
   backdrop-filter: blur(10px) !important;
-  color: rgba(255,255,255,0.92) !important;
+  color: rgba(255, 255, 255, 0.92) !important;
 }
 ::v-deep .session-dropdown .el-dropdown-menu__item {
   height: 34px !important;
@@ -652,44 +681,52 @@ export default {
   border-radius: 10px !important;
   font-size: 13px !important;
   font-weight: 700 !important;
-  color: rgba(255,255,255,0.80) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
   background: transparent !important;
   display: flex !important;
   align-items: center !important;
   gap: 8px !important;
 }
 ::v-deep .session-dropdown .el-dropdown-menu__item:hover {
-  background: rgba(255,255,255,0.07) !important;
-  color: rgba(255,255,255,0.92) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(255, 255, 255, 0.92) !important;
 }
 ::v-deep .session-dropdown .el-dropdown-menu__item.active {
-  background: linear-gradient(180deg, rgba(96,165,250,0.20), rgba(96,165,250,0.12)) !important;
-  border: 1px solid rgba(96,165,250,0.22) !important;
-  color: rgba(255,255,255,0.95) !important;
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.2), rgba(96, 165, 250, 0.12)) !important;
+  border: 1px solid rgba(96, 165, 250, 0.22) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
   font-weight: 900 !important;
 }
-::v-deep .session-dropdown .el-dropdown-menu { max-height: 300px !important; overflow-y: auto !important; }
-.menu-dot{
-  width: 8px; height: 8px; border-radius: 999px;
+::v-deep .session-dropdown .el-dropdown-menu {
+  max-height: 300px !important;
+  overflow-y: auto !important;
+}
+.menu-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
   background: rgba(34, 197, 94, 0.95);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
 }
 
 /* Icon buttons */
 .icon-btn {
-  background: rgba(255,255,255,0.06) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   color: rgba(255, 255, 255, 0.78) !important;
 }
-.icon-btn:hover { background: rgba(255,255,255,0.09) !important; color: #fff !important; }
-.danger-btn{
-  background: rgba(239,68,68,0.10) !important;
-  border: 1px solid rgba(239,68,68,0.22) !important;
-  color: rgba(255,255,255,0.84) !important;
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  color: #fff !important;
 }
-.danger-btn:hover{
-  background: rgba(239,68,68,0.16) !important;
-  border-color: rgba(239,68,68,0.30) !important;
+.danger-btn {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border: 1px solid rgba(239, 68, 68, 0.22) !important;
+  color: rgba(255, 255, 255, 0.84) !important;
+}
+.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
 }
 
 /* Create inline */
@@ -699,115 +736,262 @@ export default {
   gap: 8px;
   padding: 6px 8px;
   border-radius: 14px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   flex: 0 1 auto;
   min-width: 0;
 }
-.create-input { width: 140px; max-width: 200px; }
-::v-deep .create-input .el-input__inner{
+.create-input {
+  width: 140px;
+  max-width: 200px;
+}
+::v-deep .create-input .el-input__inner {
   height: 28px !important;
   line-height: 28px !important;
   border-radius: 10px !important;
-  background: rgba(255,255,255,0.06) !important;
-  color: rgba(255,255,255,0.90) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  font-family: var(--font-ui) !important;
+  font-weight: 700 !important;
+  -webkit-font-smoothing: antialiased;
 }
-::v-deep .create-input .el-input__inner::placeholder{ color: rgba(255,255,255,0.45) !important; }
-.create-ok{
-  height: 28px; border-radius: 10px; font-weight: 900;
-  border: none !important; color: #fff !important;
+::v-deep .create-input .el-input__inner::placeholder {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+.create-ok {
+  height: 28px;
+  border-radius: 10px;
+  font-weight: 900;
+  border: none !important;
+  color: #fff !important;
   background: linear-gradient(180deg, rgba(96, 165, 250, 0.95), rgba(96, 165, 250, 0.72)) !important;
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25) !important;
   padding: 0 10px !important;
 }
-.create-ok:hover{ filter: brightness(1.05); }
-.create-cancel{
-  height: 28px; border-radius: 10px; font-weight: 900;
-  background: rgba(255,255,255,0.06) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  color: rgba(255,255,255,0.82) !important;
+.create-ok:hover {
+  filter: brightness(1.05);
+}
+.create-cancel {
+  height: 28px;
+  border-radius: 10px;
+  font-weight: 900;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.82) !important;
   padding: 0 10px !important;
 }
-.create-cancel:hover{ background: rgba(255,255,255,0.09) !important; color: rgba(255,255,255,0.95) !important; }
+.create-cancel:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+}
 
 /* Content */
 .chat-content {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px;
-  background:
-      radial-gradient(900px 500px at 20% 0%, rgba(96, 165, 250, 0.10), transparent 55%),
-      linear-gradient(180deg, rgba(11, 18, 32, 0.85), rgba(15, 23, 42, 0.95));
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 16px;
+  background: radial-gradient(900px 500px at 20% 0%, rgba(96, 165, 250, 0.1), transparent 55%),
+  linear-gradient(180deg, rgba(11, 18, 32, 0.85), rgba(15, 23, 42, 0.95));
 }
-.empty-chat { height: 100%; display: grid; place-items: center; }
-.message-list { display: flex; flex-direction: column; gap: 14px; }
-.robot-message, .user-message { display: flex; gap: 10px; align-items: flex-start; width: 100%; }
-.user-message { justify-content: flex-end; }
-.avatar { font-weight: 900; }
-.avatar.user { background: var(--accent); color: #fff; }
-.avatar.assistant { background: var(--accent2); color: #fff; }
-.bubble-wrap { max-width: 78%; display: flex; }
-.user-wrap { justify-content: flex-end; }
+
+/* ========== ✅ 深色主题滚动条：聊天内容区 ========== */
+.chat-content {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: rgba(96, 165, 250, 0.45) rgba(15, 23, 42, 0.6);
+}
+.chat-content::-webkit-scrollbar {
+  width: 10px;
+}
+.chat-content::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 10px;
+}
+.chat-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.45), rgba(96, 165, 250, 0.25));
+  border-radius: 10px;
+  border: 2px solid rgba(15, 23, 42, 0.6);
+}
+.chat-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.65), rgba(96, 165, 250, 0.35));
+}
+
+.empty-chat {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.robot-message,
+.user-message {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+}
+.user-message {
+  justify-content: flex-end;
+}
+.avatar {
+  font-weight: 900;
+}
+.avatar.user {
+  background: var(--accent);
+  color: #fff;
+}
+.avatar.assistant {
+  background: var(--accent2);
+  color: #fff;
+}
+.bubble-wrap {
+  max-width: 78%;
+  display: flex;
+}
+.user-wrap {
+  justify-content: flex-end;
+}
 .message-bubble {
-  padding: 10px 12px; border-radius: var(--bubble-radius);
-  font-size: 14px; line-height: 1.8;
-  border: var(--bubble-border); box-shadow: var(--bubble-shadow);
+  padding: 10px 12px;
+  border-radius: var(--bubble-radius);
+  font-size: 14px;
+  line-height: 1.8;
+  border: var(--bubble-border);
+  box-shadow: var(--bubble-shadow);
+  font-family: var(--font-ui);
 }
-.robot-bubble { background: var(--bubble-ai); color: var(--t-main); border-bottom-left-radius: 6px; }
-.user-bubble { background: var(--bubble-user-grad); color: rgba(255, 255, 255, 0.92); border-bottom-right-radius: 6px; }
-.loading-row { display: inline-flex; align-items: center; gap: 8px; color: rgba(255, 255, 255, 0.82); }
-.spin { font-size: 16px; }
-.loading-text { font-size: 13px; opacity: 0.9; }
+.robot-bubble {
+  background: var(--bubble-ai);
+  color: var(--t-main);
+  border-bottom-left-radius: 6px;
+}
+.user-bubble {
+  background: var(--bubble-user-grad);
+  color: rgba(255, 255, 255, 0.92);
+  border-bottom-right-radius: 6px;
+}
+.loading-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.82);
+}
+.spin {
+  font-size: 16px;
+}
+.loading-text {
+  font-size: 13px;
+  opacity: 0.9;
+}
 
 /* Input */
-.chat-input-area { padding: 12px 12px 14px; border-top: var(--divider); background: rgba(17, 24, 39, 0.98); }
+.chat-input-area {
+  padding: 12px 12px 14px;
+  border-top: var(--divider);
+  background: rgba(17, 24, 39, 0.98);
+}
 .chat-input-shell {
-  display: flex; align-items: flex-end; gap: 10px; padding: 10px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden; /* 保险：容器也不要溢出产生滚动条 */
 }
-.input-box { flex: 1; }
+.input-box {
+  flex: 1;
+}
+
+/* ✅ 输入框字体：更干净、更像 ChatGPT，并且不白 */
 .input-box ::v-deep textarea {
-  width: 100%; border-radius: 14px; padding: 10px 12px;
-  font-size: 14px; line-height: 1.6;
-  background: var(--input-bg); color: rgba(255, 255, 255, 0.90);
-  border: var(--input-border); outline: none;
+  width: 100%;
+  border-radius: 14px;
+  padding: 10px 12px;
+
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.7;
+
+  background: var(--input-bg);
+  color: rgba(255, 255, 255, 0.9);
+  border: var(--input-border);
+  outline: none;
+
   resize: none !important;
+
+  /* ✅ 输入框不出现滚动条（侧边栏出现时也不出现） */
+  overflow: hidden !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-.input-box ::v-deep textarea[readonly]{
+
+.input-box ::v-deep textarea::placeholder {
+  color: rgba(255, 255, 255, 0.38) !important;
+  font-weight: 600;
+}
+
+.input-box ::v-deep textarea[readonly] {
   background: var(--input-bg) !important;
   color: rgba(255, 255, 255, 0.82) !important;
   border: var(--input-border) !important;
   opacity: 0.95 !important;
   cursor: not-allowed;
 }
-.send-btn{
-  height: 38px; padding: 0 16px; border-radius: 12px; font-weight: 900; border: none; color: #fff;
-  background: linear-gradient(180deg, rgba(96, 165, 250, 0.95), rgba(96, 165, 250, 0.72));
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
-}
-.send-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
-.send-btn.is-stop{ background: linear-gradient(180deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.78)); }
 
-
-/* ✅ 输入框不要出现滚动条（侧边栏出现时也不出现） */
-.input-box ::v-deep textarea {
-  overflow: hidden !important;        /* 关键：禁止滚动条 */
-  overflow-y: hidden !important;
-  scrollbar-width: none;              /* Firefox */
-  -ms-overflow-style: none;           /* IE/旧 Edge */
-}
-
-/* Chrome / Safari */
+/* Chrome / Safari：彻底隐藏输入框滚动条 */
 .input-box ::v-deep textarea::-webkit-scrollbar {
   width: 0 !important;
   height: 0 !important;
 }
 
-/* 保险：容器也不要溢出产生滚动条 */
-.chat-input-shell {
-  overflow: hidden;
+.send-btn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-weight: 900;
+  border: none;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.95), rgba(96, 165, 250, 0.72));
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+}
+.send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.send-btn.is-stop {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.78));
 }
 
+/* ========== ✅ 深色主题滚动条：Session 下拉菜单（Element UI 默认会白） ========== */
+::v-deep .session-dropdown .el-dropdown-menu {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 197, 94, 0.45) rgba(10, 16, 28, 0.9);
+}
+::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar {
+  width: 8px;
+}
+::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar-track {
+  background: rgba(10, 16, 28, 0.9);
+  border-radius: 10px;
+}
+::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.55), rgba(34, 197, 94, 0.3));
+  border-radius: 10px;
+}
+::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.75), rgba(34, 197, 94, 0.45));
+}
 </style>
