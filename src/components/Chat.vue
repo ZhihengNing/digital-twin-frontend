@@ -83,7 +83,7 @@
               icon="el-icon-more"
               circle
               size="mini"
-              :disabled="activeSessionId==null"
+              :disabled="activeSessionId == null"
               @click="$emit('toggle-side')"
           />
         </div>
@@ -118,9 +118,12 @@
                     <i class="el-icon-loading spin"></i>
                     <span class="loading-text">思考中…</span>
                   </div>
-                  <div v-else class="message-text">
-                    {{ msg.content }}
-                  </div>
+
+                  <!-- ✅ Markdown 渲染（流式节流刷新） -->
+                  <div v-else class="message-text md" v-html="msg.rendered"></div>
+
+                  <!-- ✅ 流式打字光标（更像 ChatGPT） -->
+                  <span v-if="sending && !msg.loading" class="typing-caret"></span>
                 </div>
               </div>
             </div>
@@ -129,7 +132,7 @@
             <div v-else class="user-message">
               <div class="bubble-wrap user-wrap">
                 <div class="message-bubble user-bubble">
-                  <div class="message-text">{{ msg.content }}</div>
+                  <div class="message-text">{{ msg.raw }}</div>
                 </div>
               </div>
               <el-avatar class="avatar user" :size="36">你</el-avatar>
@@ -176,6 +179,26 @@ import {
   isAbortError
 } from "@/api/chat";
 
+import MarkdownIt from "markdown-it";
+import hljs from "highlight.js";
+
+// ✅ 可选：更安全（防 XSS）
+// import DOMPurify from "dompurify";
+
+const md = new MarkdownIt({
+  html: false, // ✅ 不允许原始 HTML，避免注入
+  linkify: true,
+  breaks: true,
+  highlight: (str, lang) => {
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>`;
+      }
+    } catch (e) {}
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
+  }
+});
+
 export default {
   name: "ChatGPTLikeDialog",
   props: {
@@ -196,7 +219,11 @@ export default {
 
       logAbortCtl: null,
       bizAbortCtl: null,
-      requestToken: 0
+      requestToken: 0,
+
+      // ✅ Markdown 渲染节流
+      _renderTimer: null,
+      _renderQueue: new Set()
     };
   },
   computed: {
@@ -219,8 +246,75 @@ export default {
   beforeDestroy() {
     try { this.logAbortCtl?.abort(); } catch (e) {}
     try { this.bizAbortCtl?.abort(); } catch (e) {}
+    try {
+      if (this._renderTimer) clearTimeout(this._renderTimer);
+      this._renderTimer = null;
+      this._renderQueue && this._renderQueue.clear();
+    } catch (e) {}
   },
   methods: {
+    // ✅ 流式时如果 ``` 没闭合，会导致渲染吞内容：这里补齐
+    safeMarkdownSource(text) {
+      const s = String(text || "");
+      const fenceCount = (s.match(/```/g) || []).length;
+      if (fenceCount % 2 === 1) return s + "\n```";
+      return s;
+    },
+
+    // ✅ 渲染失败降级：纯文本转 HTML（用于 v-html）
+    plainToSafeHtml(text) {
+      return String(text || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br/>");
+    },
+
+    // ✅ 节流渲染：避免每 token 都 heavy re-render
+    scheduleRender(idx) {
+      // ✅ 任何异常都不允许影响业务流：必须吞掉
+      try {
+        if (!this._renderQueue) this._renderQueue = new Set();
+        this._renderQueue.add(idx);
+      } catch (e) {
+        return;
+      }
+
+      if (this._renderTimer) return;
+
+      this._renderTimer = setTimeout(() => {
+        let list = [];
+        try {
+          list = Array.from(this._renderQueue || []);
+          this._renderQueue && this._renderQueue.clear();
+        } catch (e) {
+          try { this._renderQueue = new Set(); } catch (e2) {}
+        } finally {
+          this._renderTimer = null;
+        }
+
+        list.forEach(i => {
+          const msg = this.messages[i];
+          if (!msg || msg.isUser) return;
+
+          try {
+            const src = this.safeMarkdownSource(msg.raw || "");
+            let html = md.render(src);
+
+            // ✅ 可选：更安全（防 XSS）
+            // html = DOMPurify.sanitize(html);
+
+            this.$set(msg, "rendered", html);
+          } catch (e) {
+            // ✅ 渲染失败：降级纯文本，不影响流
+            this.$set(msg, "rendered", this.plainToSafeHtml(msg.raw || ""));
+          }
+        });
+
+        this.scrollToBottom();
+      }, 60);
+    },
+
     async refreshSessionsAndInit() {
       this.cancelCreateInline();
 
@@ -276,15 +370,30 @@ export default {
     async fetchChatHistory() {
       if (!this.hasSession) return;
 
-      this.messages = [{ isUser: false, content: "", loading: true }];
+      // loading 占位
+      this.messages = [{ isUser: false, raw: "", rendered: "", loading: true }];
 
       const res = await getHistoryMessages();
       const list = res?.data || res || [];
-      this.messages = (list || []).map(x => ({
-        isUser: (x.role || "").toUpperCase() === "USER",
-        content: x.content || "",
-        loading: false
-      }));
+
+      this.messages = (list || []).map(x => {
+        const isUser = (x.role || "").toUpperCase() === "USER";
+        const raw = x.content || "";
+        return isUser
+            ? { isUser: true, raw, loading: false }
+            : {
+              isUser: false,
+              raw,
+              rendered: (() => {
+                try {
+                  return md.render(this.safeMarkdownSource(raw));
+                } catch (e) {
+                  return this.plainToSafeHtml(raw);
+                }
+              })(),
+              loading: false
+            };
+      });
 
       this.scrollToBottom();
     },
@@ -385,11 +494,18 @@ export default {
       this.sending = true;
       const myToken = ++this.requestToken;
 
-      this.messages.push({ isUser: true, content });
+      // 用户消息
+      this.messages.push({ isUser: true, raw: content, loading: false });
       this.inputContent = "";
       this.scrollToBottom();
 
-      const aiIdx = this.messages.push({ isUser: false, content: "", loading: true }) - 1;
+      // AI 占位（raw/rendered 分离）
+      const aiIdx = this.messages.push({
+        isUser: false,
+        raw: "",
+        rendered: "",
+        loading: true
+      }) - 1;
 
       try {
         // 日志流（解耦）
@@ -412,27 +528,44 @@ export default {
           signal: this.bizAbortCtl?.signal,
 
           onToken: (t) => {
-            if (myToken !== this.requestToken) return;
-            if (aiIdx < 0 || aiIdx >= this.messages.length) return;
+            // ✅ 任何异常都必须吞掉，否则会被外层 catch 当成“请求失败”
+            try {
+              if (myToken !== this.requestToken) return;
+              if (aiIdx < 0 || aiIdx >= this.messages.length) return;
 
-            const msg = this.messages[aiIdx];
-            if (!msg || msg.isUser) return;
+              const msg = this.messages[aiIdx];
+              if (!msg || msg.isUser) return;
 
-            if (msg.loading) msg.loading = false;
-            msg.content = (msg.content || "") + String(t);
+              if (msg.loading) msg.loading = false;
 
-            this.scrollToBottom();
+              msg.raw = (msg.raw || "") + String(t);
+
+              // ✅ 节流渲染
+              this.scheduleRender(aiIdx);
+            } catch (err) {
+              // 不要 throw！只记录
+              // eslint-disable-next-line no-console
+              console.error("onToken failed:", err);
+            }
           },
 
           onDone: () => {
-            if (myToken !== this.requestToken) return;
-            if (aiIdx < 0 || aiIdx >= this.messages.length) return;
+            try {
+              if (myToken !== this.requestToken) return;
+              if (aiIdx < 0 || aiIdx >= this.messages.length) return;
 
-            const msg = this.messages[aiIdx];
-            if (msg) msg.loading = false;
+              const msg = this.messages[aiIdx];
+              if (msg) msg.loading = false;
 
-            try { this.logAbortCtl?.abort(); } catch (e) {}
-            this.logAbortCtl = null;
+              // ✅ 最终强制渲染一次
+              this.scheduleRender(aiIdx);
+
+              try { this.logAbortCtl?.abort(); } catch (e) {}
+              this.logAbortCtl = null;
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.error("onDone failed:", err);
+            }
           }
         });
 
@@ -449,10 +582,20 @@ export default {
 
         if (aiIdx >= 0 && aiIdx < this.messages.length) {
           const old = this.messages[aiIdx];
-          const oldText = old?.content || "";
+          const oldText = old?.raw || "";
+          const raw = oldText ? (oldText + "\n\n请求失败") : "请求失败";
+
+          let rendered = "";
+          try {
+            rendered = md.render(this.safeMarkdownSource(raw));
+          } catch (err) {
+            rendered = this.plainToSafeHtml(raw);
+          }
+
           this.messages.splice(aiIdx, 1, {
             isUser: false,
-            content: oldText ? (oldText + "\n\n请求失败") : "请求失败",
+            raw,
+            rendered,
             loading: false
           });
         }
@@ -686,9 +829,13 @@ export default {
 .bubble-wrap { max-width: 78%; display: flex; }
 .user-wrap { justify-content: flex-end; }
 .message-bubble {
-  padding: 10px 12px; border-radius: var(--bubble-radius);
-  font-size: 14px; line-height: 1.8;
-  border: var(--bubble-border); box-shadow: var(--bubble-shadow);
+  position: relative;
+  padding: 10px 12px;
+  border-radius: var(--bubble-radius);
+  font-size: 14px;
+  line-height: 1.8;
+  border: var(--bubble-border);
+  box-shadow: var(--bubble-shadow);
   font-family: var(--font-ui);
 }
 .robot-bubble { background: rgba(15, 23, 42, 0.85); color: var(--t-main); border-bottom-left-radius: 6px; }
@@ -753,4 +900,114 @@ export default {
   box-shadow: 0 0 0 2px rgba(15,23,42,0.95), 0 0 14px rgba(239,68,68,0.55);
   pointer-events: none;
 }
+
+/* ✅ 打字光标 */
+.typing-caret{
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.65);
+  vertical-align: -2px;
+  animation: blink 1s infinite;
+}
+@keyframes blink{
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* ✅ Markdown 渲染排版（AI 气泡内） */
+.message-text.md {
+  font-size: 14px;
+  line-height: 1.85;
+  letter-spacing: 0.2px;
+}
+
+/* 段落间距 */
+.message-text.md ::v-deep p { margin: 0.35em 0; }
+
+/* 标题 */
+.message-text.md ::v-deep h1,
+.message-text.md ::v-deep h2,
+.message-text.md ::v-deep h3 {
+  margin: 0.7em 0 0.35em;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+/* 列表 */
+.message-text.md ::v-deep ul,
+.message-text.md ::v-deep ol {
+  margin: 0.35em 0 0.35em 1.1em;
+  padding: 0;
+}
+.message-text.md ::v-deep li { margin: 0.18em 0; }
+
+/* 行内代码 */
+.message-text.md ::v-deep code {
+  padding: 0.12em 0.38em;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.92em;
+}
+
+/* 代码块 */
+.message-text.md ::v-deep pre.hljs {
+  margin: 0.55em 0;
+  padding: 12px 12px;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(255,255,255,0.10);
+  overflow: auto;
+}
+.message-text.md ::v-deep pre.hljs code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* 引用 */
+.message-text.md ::v-deep blockquote {
+  margin: 0.55em 0;
+  padding: 0.45em 0.8em;
+  border-left: 3px solid rgba(96,165,250,0.55);
+  background: rgba(96,165,250,0.10);
+  border-radius: 10px;
+  color: rgba(255,255,255,0.86);
+}
+
+/* 表格 */
+.message-text.md ::v-deep table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0.6em 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.message-text.md ::v-deep th,
+.message-text.md ::v-deep td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  vertical-align: top;
+}
+.message-text.md ::v-deep th {
+  background: rgba(255,255,255,0.06);
+  font-weight: 900;
+}
+.message-text.md ::v-deep tr:last-child td { border-bottom: none; }
+
+/* 链接 */
+.message-text.md ::v-deep a {
+  color: rgba(96,165,250,0.95);
+  text-decoration: none;
+  font-weight: 800;
+}
+.message-text.md ::v-deep a:hover { text-decoration: underline; }
 </style>

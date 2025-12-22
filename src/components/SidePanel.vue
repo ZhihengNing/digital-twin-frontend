@@ -23,11 +23,10 @@
           <div class="g-head">
             <div class="g-left">
               <span class="badge">QUERY LOG</span>
-              <span class="gid">#{{ g.__id }}</span>
             </div>
-            <span class="ts">{{ formatTime(g.ts) }}</span>
           </div>
 
+          <!-- ✅ 不换行：超长横向滚动 -->
           <pre class="g-body">{{ g.text }}</pre>
         </div>
       </div>
@@ -40,7 +39,7 @@ export default {
   name: "SidePanel",
   props: {
     sessionId: { type: String, default: "" },
-    groups: { type: Array, default: () => [] } // App 传过来的“框框”
+    groups: { type: Array, default: () => [] }
   },
   computed: {
     displayGroups() {
@@ -68,7 +67,6 @@ export default {
         el.scrollTop = el.scrollHeight;
       });
     },
-
     formatTime(ts) {
       const d = new Date(ts || Date.now());
       const hh = String(d.getHours()).padStart(2, "0");
@@ -81,7 +79,12 @@ export default {
 </script>
 
 <style scoped>
-.sp-card {
+/* ✅ 代码字体栈：更像 Source Code */
+.sp-card{
+  --code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+  "JetBrains Mono", "Fira Code", "Source Code Pro", "Cascadia Mono",
+  "Roboto Mono", "Ubuntu Mono", "Courier New", monospace;
+
   height: 100%;
   width: 100%;
   border-radius: var(--card-radius);
@@ -94,7 +97,7 @@ export default {
   box-shadow: var(--card-shadow);
 }
 
-.sp-header {
+.sp-header{
   height: 56px;
   padding: 0 14px;
   display: flex;
@@ -105,7 +108,7 @@ export default {
   background: var(--header-bg);
 }
 
-.sp-title {
+.sp-title{
   display: flex;
   gap: 10px;
   align-items: center;
@@ -114,7 +117,7 @@ export default {
   letter-spacing: 0.2px;
 }
 
-.sp-dot {
+.sp-dot{
   width: 10px;
   height: 10px;
   border-radius: 999px;
@@ -122,7 +125,7 @@ export default {
   box-shadow: 0 0 18px rgba(96, 165, 250, 0.55);
 }
 
-.sp-close {
+.sp-close{
   height: 32px;
   padding: 0 12px;
   border-radius: 10px;
@@ -133,12 +136,12 @@ export default {
   transition: all 0.18s ease;
   font-weight: 800;
 }
-.sp-close:hover {
+.sp-close:hover{
   background: var(--ctl-bg-hover);
   transform: translateY(-1px);
 }
 
-.sp-body {
+.sp-body{
   flex: 1;
   min-height: 0;
   padding: 14px;
@@ -148,22 +151,22 @@ export default {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.22) var(--sb-track);
 }
-.sp-body::-webkit-scrollbar { width: 10px; }
-.sp-body::-webkit-scrollbar-track {
+.sp-body::-webkit-scrollbar{ width: 10px; }
+.sp-body::-webkit-scrollbar-track{
   background: var(--sb-track);
   border-radius: 999px;
   margin: 8px 0;
 }
-.sp-body::-webkit-scrollbar-thumb {
+.sp-body::-webkit-scrollbar-thumb{
   background: var(--sb-thumb-grad);
   border-radius: 999px;
   border: 2px solid rgba(15, 23, 42, 0.85);
 }
-.sp-body::-webkit-scrollbar-thumb:hover {
+.sp-body::-webkit-scrollbar-thumb:hover{
   background: var(--sb-thumb-grad-hover);
 }
 
-.sp-hint {
+.sp-hint{
   padding: 12px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -171,13 +174,13 @@ export default {
   color: var(--t-sub);
 }
 
-.sp-group-list {
+.sp-group-list{
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.sp-group {
+.sp-group{
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.04);
@@ -224,17 +227,47 @@ export default {
   flex: 0 0 auto;
 }
 
+/* ✅ 重点：日志不换行 + 横向滚动条主题化 + 更好看的代码字体 */
 .g-body{
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(0,0,0,0.28);
-  color: rgba(255,255,255,0.86);
+  color: rgba(255,255,255,0.88);
+
+  font-family: var(--code-font);
   font-size: 12px;
-  line-height: 1.6;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  line-height: 1.65;
+  font-variant-ligatures: contextual; /* Fira Code/JetBrains Mono 有连字更舒服 */
+  letter-spacing: 0.15px;
+
+  /* ❌ 不换行 */
+  white-space: pre;
+
+  /* ✅ 超长横向滚动 */
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  /* Firefox 滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.22) rgba(255,255,255,0.06);
+}
+
+/* WebKit 横向滚动条（也会影响纵向，但这里 g-body 只有横向） */
+.g-body::-webkit-scrollbar{
+  height: 10px;
+}
+.g-body::-webkit-scrollbar-track{
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+}
+.g-body::-webkit-scrollbar-thumb{
+  background: var(--sb-thumb-grad);
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.85);
+}
+.g-body::-webkit-scrollbar-thumb:hover{
+  background: var(--sb-thumb-grad-hover);
 }
 </style>
