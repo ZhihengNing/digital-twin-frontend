@@ -40,7 +40,7 @@ export default {
   name: "SidePanel",
   props: {
     sessionId: { type: String, default: "" },
-    groups: { type: Array, default: () => [] } // ✅ App 传过来的“框框”
+    groups: { type: Array, default: () => [] } // App 传过来的“框框”
   },
   computed: {
     displayGroups() {
@@ -177,7 +177,6 @@ export default {
   gap: 12px;
 }
 
-/* ✅ 每个“框框” */
 .sp-group {
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.10);

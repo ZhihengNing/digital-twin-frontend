@@ -1,6 +1,9 @@
 // src/api/chat.js
 import {apiAgentClient} from "@/api/apiClient"; // 你项目里原本怎么引就怎么引
 
+
+const baseURL="http://100.84.26.208:12000/"
+
 export async function resolveQuery(query, options) {
     const data = { message: query };
 
@@ -31,6 +34,75 @@ export async function resolveQuery(query, options) {
             console.error("Error during resolveQuery:", error);
         }
         throw error; // ✅ 抛给 UI 做“终止/失败”区分
+    }
+}
+
+export async function resolveQueryStream(query, options = {}) {
+    const ctrl = options.signal ? null : new AbortController();
+    const signal = options.signal || ctrl.signal;
+
+    const sessionId = window.localStorage.getItem("sessionId");
+    const scene = window.localStorage.getItem("scene");
+
+    const resp = await fetch(baseURL+"agent/chatStream", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json;charset=UTF-8",
+            // 你的自定义 header
+            sessionId,
+            scene,
+        },
+        body: JSON.stringify({ message: query }),
+        signal,
+    });
+
+    if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}: ${text}`);
+    }
+
+    // ✅ 关键：ReadableStream 逐段读取
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    let buffer = "";
+
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+
+            let idx;
+            while ((idx = buffer.indexOf("\n")) >= 0) {
+                const line = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 1);
+
+                if (!line) continue;
+                // 这里 line 就是一个 token（或一段文本）
+                options.onToken?.(line);
+            }
+        }
+
+        // flush 残留
+        if (buffer) options.onToken?.(buffer);
+
+        options.onDone?.();
+    } catch (e) {
+        // 被终止不当作错误刷屏
+        const msg = String(e?.message || "").toLowerCase();
+        const isAbort =
+            e?.name === "AbortError" ||
+            msg.includes("aborted") ||
+            msg.includes("canceled") ||
+            msg.includes("cancelled");
+
+        if (!isAbort) options.onError?.(e);
+        throw e;
+    } finally {
+        try { reader.releaseLock(); } catch (_) {}
     }
 }
 
@@ -182,7 +254,7 @@ async function streamLinesByFetch({ url, headers, body, signal, onLine }) {
  * @param {string} [params.url] - 默认 /agent/logStream
  */
 export async function startAgentLogStream({ signal, isActive, getSessionId, getLogGroupId, emit,
-                                              url = "http://100.84.26.208:12000/agent/logStream" }) {
+                                              url = baseURL+"agent/logStream" }) {
     const headers = {
         sessionId: window.localStorage.getItem("sessionId"),
         scene: window.localStorage.getItem("scene")

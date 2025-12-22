@@ -4,7 +4,6 @@
     <div class="chat-header">
       <div class="header-row">
         <div class="left-group">
-          <!-- Session 触发器：未开启会话时禁用 -->
           <el-dropdown
               trigger="click"
               @command="onSessionCommand"
@@ -42,7 +41,6 @@
               title="新建对话"
           />
 
-          <!-- ✅ 输入框：只有点击加号(createMode=true)才显示 -->
           <div v-if="createMode" class="create-inline">
             <el-input
                 ref="createInput"
@@ -58,7 +56,6 @@
             <el-button size="mini" class="create-cancel" @click="cancelCreateInline">取消</el-button>
           </div>
 
-          <!-- 删除对话：只有有 activeSessionId 时显示 -->
           <el-popconfirm
               v-if="!createMode && hasSession"
               title="确认删除当前对话吗？删除后不可恢复"
@@ -76,17 +73,20 @@
                 title="删除当前对话"
             />
           </el-popconfirm>
-
         </div>
 
-        <!-- 三个点 -->
-        <el-button
-            class="icon-btn"
-            icon="el-icon-more"
-            circle
-            size="mini"
-            @click="$emit('toggle-side')"
-        />
+        <!-- 三个点（带红点） -->
+        <div class="more-wrap">
+          <span v-if="showSideDot" class="notify-dot"></span>
+          <el-button
+              class="icon-btn"
+              icon="el-icon-more"
+              circle
+              size="mini"
+              :disabled="activeSessionId==null"
+              @click="$emit('toggle-side')"
+          />
+        </div>
       </div>
 
       <div class="sub">
@@ -97,7 +97,6 @@
 
     <!-- Content -->
     <div class="chat-content" ref="chatContent">
-      <!-- ✅ 未开启 session：提示状态（绝不自动弹输入框） -->
       <div v-if="!hasSession" class="empty-chat">
         <el-empty description="请先新建/选择一个对话名称，然后开始聊天 🚀" />
       </div>
@@ -171,7 +170,7 @@
 import {
   getAllSessions,
   getHistoryMessages,
-  resolveQuery,
+  resolveQueryStream,
   delSession,
   startAgentLogStream,
   isAbortError
@@ -179,6 +178,10 @@ import {
 
 export default {
   name: "ChatGPTLikeDialog",
+  props: {
+    // ✅ App 控制：当前 session 有未读日志/需要亮红点
+    sideDot: { type: Boolean, default: false }
+  },
   data() {
     return {
       inputContent: "",
@@ -192,6 +195,7 @@ export default {
       createName: "",
 
       logAbortCtl: null,
+      bizAbortCtl: null,
       requestToken: 0
     };
   },
@@ -201,6 +205,10 @@ export default {
     },
     hasSessionList() {
       return (this.assistants || []).length > 0;
+    },
+    // ✅ 红点：业务流 sending 或 App 标记未读
+    showSideDot() {
+      return this.sending || this.sideDot;
     }
   },
   async mounted() {
@@ -210,6 +218,7 @@ export default {
   },
   beforeDestroy() {
     try { this.logAbortCtl?.abort(); } catch (e) {}
+    try { this.bizAbortCtl?.abort(); } catch (e) {}
   },
   methods: {
     async refreshSessionsAndInit() {
@@ -259,6 +268,8 @@ export default {
       this.cancelCreateInline();
 
       await this.fetchChatHistory();
+
+      // ✅ 通知 App：切 session（App 会在这里拉 historyLog）
       this.$emit("session-change", val);
     },
 
@@ -302,6 +313,8 @@ export default {
 
       this.messages = [];
       this.cancelCreateInline();
+
+      // ✅ 通知 App：切到新 session（App 会拉 historyLog；此时可能为空）
       this.$emit("session-change", name);
     },
 
@@ -309,19 +322,11 @@ export default {
       if (!this.hasSession) return;
       if (this.sending) return this.$message.warning("正在请求中，请先终止再删除");
 
-      const deletingId = this.activeSessionId;
-
       const res = await delSession();
       if (!res) return this.$message.error("删除失败");
 
       this.$message.success("删除成功");
-
       await this.refreshSessionsAndInit();
-
-      if (this.activeSessionId === deletingId) {
-        // 不强行处理，避免误伤；后端删没删成功请以 refresh 的列表为准
-      }
-
       this.$emit("session-change", this.activeSessionId);
     },
 
@@ -337,8 +342,12 @@ export default {
       if (!this.sending) return;
 
       this.requestToken++;
+
       try { this.logAbortCtl?.abort(); } catch (e) {}
       this.logAbortCtl = null;
+
+      try { this.bizAbortCtl?.abort(); } catch (e) {}
+      this.bizAbortCtl = null;
 
       let idx = -1;
       for (let i = this.messages.length - 1; i >= 0; i--) {
@@ -350,7 +359,6 @@ export default {
       this.scrollToBottom();
     },
 
-    /** ✅ 这里已经彻底解耦：Chat.vue 不关心 fetch/SSE，不传 message，不组 payload */
     async startLogStream(tokenAtStart) {
       if (!this.hasSession) return;
 
@@ -360,7 +368,7 @@ export default {
         signal: this.logAbortCtl?.signal,
         isActive: () => tokenAtStart === this.requestToken,
         getSessionId: () => this.activeSessionId,
-        getLogGroupId: () => tokenAtStart,                // ✅ 新增：这次提问的 groupId
+        getLogGroupId: () => tokenAtStart,
         emit: (evtName, payload) => this.$emit(evtName, payload)
       });
     },
@@ -384,7 +392,7 @@ export default {
       const aiIdx = this.messages.push({ isUser: false, content: "", loading: true }) - 1;
 
       try {
-        // ✅ 日志流：完全解耦，不传 content
+        // 日志流（解耦）
         this.startLogStream(myToken).catch((e) => {
           if (isAbortError(e)) return;
           if (myToken !== this.requestToken) return;
@@ -397,22 +405,38 @@ export default {
           });
         });
 
-        // ✅ 业务请求仍然需要 content
-        const res = await resolveQuery(content);
-        if (myToken !== this.requestToken) return;
+        // 业务流（流式输出）
+        this.bizAbortCtl = typeof AbortController !== "undefined" ? new AbortController() : null;
 
-        const answer = res?.data || res || "请求失败";
+        await resolveQueryStream(content, {
+          signal: this.bizAbortCtl?.signal,
 
-        if (aiIdx >= 0 && aiIdx < this.messages.length && this.messages[aiIdx]?.loading) {
-          this.messages.splice(aiIdx, 1, {
-            isUser: false,
-            content: String(answer),
-            loading: false
-          });
-        }
+          onToken: (t) => {
+            if (myToken !== this.requestToken) return;
+            if (aiIdx < 0 || aiIdx >= this.messages.length) return;
 
-        try { this.logAbortCtl?.abort(); } catch (e) {}
-        this.logAbortCtl = null;
+            const msg = this.messages[aiIdx];
+            if (!msg || msg.isUser) return;
+
+            if (msg.loading) msg.loading = false;
+            msg.content = (msg.content || "") + String(t);
+
+            this.scrollToBottom();
+          },
+
+          onDone: () => {
+            if (myToken !== this.requestToken) return;
+            if (aiIdx < 0 || aiIdx >= this.messages.length) return;
+
+            const msg = this.messages[aiIdx];
+            if (msg) msg.loading = false;
+
+            try { this.logAbortCtl?.abort(); } catch (e) {}
+            this.logAbortCtl = null;
+          }
+        });
+
+        this.bizAbortCtl = null;
       } catch (e) {
         const aborted = isAbortError(e);
 
@@ -423,10 +447,12 @@ export default {
           return;
         }
 
-        if (aiIdx >= 0 && aiIdx < this.messages.length && this.messages[aiIdx]?.loading) {
+        if (aiIdx >= 0 && aiIdx < this.messages.length) {
+          const old = this.messages[aiIdx];
+          const oldText = old?.content || "";
           this.messages.splice(aiIdx, 1, {
             isUser: false,
-            content: "请求失败",
+            content: oldText ? (oldText + "\n\n请求失败") : "请求失败",
             loading: false
           });
         }
@@ -440,8 +466,12 @@ export default {
       } finally {
         if (myToken === this.requestToken) {
           this.sending = false;
+
           try { this.logAbortCtl?.abort(); } catch (e) {}
           this.logAbortCtl = null;
+
+          try { this.bizAbortCtl?.abort(); } catch (e) {}
+          this.bizAbortCtl = null;
         }
         this.scrollToBottom();
       }
@@ -458,33 +488,7 @@ export default {
 </script>
 
 <style scoped>
-/* ========== 全局变量定义（确保主题统一） ========== */
-:root {
-  --card-bg-grad: linear-gradient(180deg, #111827, #0f172a);
-  --card-border: 1px solid rgba(255, 255, 255, 0.08);
-  --card-radius: 16px;
-  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-
-  --header-bg: rgba(17, 24, 39, 0.95);
-  --divider: 1px solid rgba(255, 255, 255, 0.08);
-
-  --t-main: rgba(255, 255, 255, 0.92);
-  --t-sub: rgba(255, 255, 255, 0.6);
-  --t-muted: rgba(255, 255, 255, 0.45);
-
-  --bubble-radius: 14px;
-  --bubble-border: 1px solid rgba(255, 255, 255, 0.08);
-  --bubble-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  --bubble-ai: rgba(15, 23, 42, 0.85);
-  --bubble-user-grad: linear-gradient(180deg, #3b82f6, #2563eb);
-
-  --input-bg: rgba(15, 23, 42, 0.9);
-  --input-border: 1px solid rgba(255, 255, 255, 0.12);
-
-  --accent: #3b82f6;
-  --accent2: #10b981;
-
-  /* ✅ 更舒服的字体栈（中英都好看） */
+:root{
   --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
   "Noto Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Apple Color Emoji",
   "Segoe UI Emoji";
@@ -492,7 +496,6 @@ export default {
 
 .message-text { white-space: pre-wrap; word-break: break-word; }
 
-/* Card */
 .chat-card {
   width: 100%;
   height: 100%;
@@ -509,7 +512,6 @@ export default {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Header */
 .chat-header {
   padding: 14px 16px 10px 16px;
   border-bottom: var(--divider);
@@ -529,7 +531,6 @@ export default {
 }
 .sub { margin-top: 6px; font-size: 12px; color: var(--t-sub); }
 
-/* Session pill */
 .session-pill{
   display: inline-flex;
   align-items: center;
@@ -560,7 +561,6 @@ export default {
 .caret{ color: rgba(255,255,255,0.50); font-size: 12px; }
 .session-pill:hover .caret{ color: rgba(255,255,255,0.72); }
 
-/* Dropdown */
 ::v-deep .session-dropdown {
   background: rgba(10, 16, 28, 0.98) !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
@@ -601,25 +601,6 @@ export default {
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
 }
 
-/* ✅ 下拉滚动条主题化（避免白色） */
-::v-deep .session-dropdown .el-dropdown-menu {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(34, 197, 94, 0.45) rgba(10, 16, 28, 0.9);
-}
-::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar { width: 8px; }
-::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar-track {
-  background: rgba(10, 16, 28, 0.9);
-  border-radius: 10px;
-}
-::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.55), rgba(34, 197, 94, 0.30));
-  border-radius: 10px;
-}
-::v-deep .session-dropdown .el-dropdown-menu::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.75), rgba(34, 197, 94, 0.45));
-}
-
-/* Icon buttons */
 .icon-btn {
   background: rgba(255,255,255,0.06) !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
@@ -636,7 +617,6 @@ export default {
   border-color: rgba(239,68,68,0.30) !important;
 }
 
-/* Create inline */
 .create-inline {
   display: flex;
   align-items: center;
@@ -667,7 +647,6 @@ export default {
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25) !important;
   padding: 0 10px !important;
 }
-.create-ok:hover{ filter: brightness(1.05); }
 .create-cancel{
   height: 28px; border-radius: 10px; font-weight: 900;
   background: rgba(255,255,255,0.06) !important;
@@ -675,17 +654,13 @@ export default {
   color: rgba(255,255,255,0.82) !important;
   padding: 0 10px !important;
 }
-.create-cancel:hover{ background: rgba(255,255,255,0.09) !important; color: rgba(255,255,255,0.95) !important; }
 
-/* Content */
 .chat-content {
   flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px;
   background:
       radial-gradient(900px 500px at 20% 0%, rgba(96, 165, 250, 0.10), transparent 55%),
       linear-gradient(180deg, rgba(11, 18, 32, 0.85), rgba(15, 23, 42, 0.95));
 }
-
-/* ✅ 聊天内容滚动条主题化（避免白色） */
 .chat-content {
   scrollbar-width: thin;
   scrollbar-color: rgba(96,165,250,0.45) rgba(15,23,42,0.6);
@@ -700,9 +675,6 @@ export default {
   border-radius: 10px;
   border: 2px solid rgba(15, 23, 42, 0.6);
 }
-.chat-content::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(96, 165, 250, 0.65), rgba(96, 165, 250, 0.35));
-}
 
 .empty-chat { height: 100%; display: grid; place-items: center; }
 .message-list { display: flex; flex-direction: column; gap: 14px; }
@@ -710,7 +682,7 @@ export default {
 .user-message { justify-content: flex-end; }
 .avatar { font-weight: 900; }
 .avatar.user { background: var(--accent); color: #fff; }
-.avatar.assistant { background: var(--accent2); color: #fff; }
+.avatar.assistant { background: rgba(34,197,94,0.9); color: #fff; }
 .bubble-wrap { max-width: 78%; display: flex; }
 .user-wrap { justify-content: flex-end; }
 .message-bubble {
@@ -719,13 +691,12 @@ export default {
   border: var(--bubble-border); box-shadow: var(--bubble-shadow);
   font-family: var(--font-ui);
 }
-.robot-bubble { background: var(--bubble-ai); color: var(--t-main); border-bottom-left-radius: 6px; }
-.user-bubble { background: var(--bubble-user-grad); color: rgba(255, 255, 255, 0.92); border-bottom-right-radius: 6px; }
+.robot-bubble { background: rgba(15, 23, 42, 0.85); color: var(--t-main); border-bottom-left-radius: 6px; }
+.user-bubble { background: linear-gradient(180deg, #3b82f6, #2563eb); color: rgba(255, 255, 255, 0.92); border-bottom-right-radius: 6px; }
 .loading-row { display: inline-flex; align-items: center; gap: 8px; color: rgba(255, 255, 255, 0.82); }
 .spin { font-size: 16px; }
 .loading-text { font-size: 13px; opacity: 0.9; }
 
-/* Input */
 .chat-input-area { padding: 12px 12px 14px; border-top: var(--divider); background: rgba(17, 24, 39, 0.98); }
 .chat-input-shell {
   display: flex; align-items: flex-end; gap: 10px; padding: 10px;
@@ -736,8 +707,6 @@ export default {
   overflow: hidden;
 }
 .input-box { flex: 1; }
-
-/* ✅ 输入框字体更干净 */
 .input-box ::v-deep textarea {
   width: 100%;
   border-radius: 14px;
@@ -747,31 +716,17 @@ export default {
   font-weight: 600;
   letter-spacing: 0.2px;
   line-height: 1.7;
-  background: var(--input-bg);
+  background: rgba(15, 23, 42, 0.9);
   color: rgba(255, 255, 255, 0.90);
-  border: var(--input-border);
+  border: 1px solid rgba(255,255,255,0.12);
   outline: none;
   resize: none !important;
-
-  /* ✅ 不要滚动条 */
   overflow: hidden !important;
   overflow-y: hidden !important;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-.input-box ::v-deep textarea::placeholder {
-  color: rgba(255, 255, 255, 0.38) !important;
-  font-weight: 600;
-}
-.input-box ::v-deep textarea[readonly]{
-  background: var(--input-bg) !important;
-  color: rgba(255, 255, 255, 0.82) !important;
-  border: var(--input-border) !important;
-  opacity: 0.95 !important;
-  cursor: not-allowed;
-}
 .input-box ::v-deep textarea::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
-
 .send-btn{
   height: 38px; padding: 0 16px; border-radius: 12px; font-weight: 900; border: none; color: #fff;
   background: linear-gradient(180deg, rgba(96, 165, 250, 0.95), rgba(96, 165, 250, 0.72));
@@ -779,4 +734,23 @@ export default {
 }
 .send-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
 .send-btn.is-stop{ background: linear-gradient(180deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.78)); }
+
+/* ✅ 三个点红点 */
+.more-wrap{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.notify-dot{
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(15,23,42,0.95), 0 0 14px rgba(239,68,68,0.55);
+  pointer-events: none;
+}
 </style>

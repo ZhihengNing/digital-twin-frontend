@@ -7,11 +7,11 @@
         </el-col>
 
         <el-col :span="chatSpan" class="full-col">
-          <!-- ✅ 用 key 硬重置，避免 Chat 组件缓存导致“初始就显示上次的 createMode=true” -->
           <Chat
               :key="chatKey"
               class="full-content"
-              @toggle-side="sideOpen = !sideOpen"
+              :sideDot="currentSideDot"
+              @toggle-side="onToggleSide"
               @tool-event="onToolEvent"
               @session-change="onSessionChange"
           />
@@ -44,40 +44,42 @@ export default {
       scene: "test_scene",
       sideOpen: false,
 
-      // ✅ 不再默认 default
+      // 当前选中会话
       activeSessionId: null,
 
-      // ✅ 控制 Chat 组件重建（避免 createMode 等 UI 状态残留）
+      // 控制 Chat 组件重建（按需）
       chatKey: 1,
 
       /**
        * ✅ 右侧“框框”数据结构（每次 query 一个框）
        * logGroupsBySession: { [sessionId]: Array<{id, ts, sessionId, text, source}> }
-       * source: "history" | "stream"（可选，用于你调试）
        */
-      logGroupsBySession: {} // { [sessionId]: Array<group> }
+      logGroupsBySession: {},
+
+      /**
+       * ✅ 未读红点（每个 session）
+       * unreadBySession: { [sessionId]: boolean }
+       */
+      unreadBySession: {}
     };
   },
 
-  // ✅ 关键：把 localStorage 写入提前到 created（子组件 mounted 前就能读到正确 scene）
   created() {
+    // ✅ 确保子组件 mounted 前 localStorage 已写好
     this.scene = "test_scene";
     window.localStorage.setItem("scene", this.scene);
 
     const saved = window.localStorage.getItem("sessionId");
-    this.activeSessionId = saved && String(saved).trim() ? saved : null;
+    this.activeSessionId = saved && String(saved).trim() ? String(saved).trim() : null;
 
-    // 只有真实 session 才初始化日志数组
-    if (this.activeSessionId && !this.logGroupsBySession[this.activeSessionId]) {
-      this.$set(this.logGroupsBySession, this.activeSessionId, []);
-    }
-  },
+    if (this.activeSessionId) {
+      if (!this.logGroupsBySession[this.activeSessionId]) {
+        this.$set(this.logGroupsBySession, this.activeSessionId, []);
+      }
+      this.$set(this.unreadBySession, this.activeSessionId, false);
 
-  watch: {
-    // ✅ 每次打开侧边栏：先拉一次 historyLog（List<String> -> 多个框）
-    async sideOpen(val) {
-      if (!val) return;
-      await this.loadHistoryLogsForActiveSession();
+      // ✅ 你希望“选中 session 就拉历史”，所以：启动时有 session 也拉一次
+      this.loadHistoryLogsForActiveSession().catch(() => {});
     }
   },
 
@@ -86,92 +88,108 @@ export default {
       const sid = this.activeSessionId;
       return (this.logGroupsBySession[sid] || []);
     },
+
+    // ✅ 给 Chat 的红点：当前 session 是否有未读
+    currentSideDot() {
+      const sid = this.activeSessionId;
+      return !!(sid && this.unreadBySession[sid]);
+    },
+
     leftSpan() { return this.sideOpen ? 11 : 16; },
     chatSpan() { return this.sideOpen ? 7 : 8; },
     sideSpan() { return 6; }
   },
 
   methods: {
+    onToggleSide() {
+      this.sideOpen = !this.sideOpen;
+
+      // ✅ 打开侧边栏 => 清掉当前 session 未读红点
+      if (this.sideOpen && this.activeSessionId) {
+        this.$set(this.unreadBySession, this.activeSessionId, false);
+      }
+    },
+
     async loadHistoryLogsForActiveSession() {
       const sid = this.activeSessionId && String(this.activeSessionId).trim()
           ? String(this.activeSessionId).trim()
           : null;
 
-      if (!sid) {
-        return;
-      }
+      if (!sid) return;
 
-      // ✅ 确保有数组
       if (!this.logGroupsBySession[sid]) this.$set(this.logGroupsBySession, sid, []);
 
       // ✅ 拉取 historyLog：后端返回 List<String>
       const res = await getHistoryLog();
       const list = res?.data || res || [];
-
-      // 若不是数组，兜底成空
       const arr = Array.isArray(list) ? list : [];
 
-      // ✅ 转成“框框”
-      // 约定：每个 string = 一个 query 的完整日志文本
       const groupsFromHistory = arr
           .filter(s => s != null && String(s).trim() !== "")
           .map((text, idx) => ({
             id: `hist_${idx + 1}`,
-            ts: Date.now(), // 你如果后端没有时间戳，只能前端用当前时间
+            ts: Date.now(),
             sessionId: sid,
             text: String(text),
             source: "history"
           }));
 
-      // ✅ 打开侧边栏时：以 history 为准，先覆盖
-      // 后续新的 query 实时日志会以 groupId(=token) 追加成新的框
+      // ✅ 切换 session 时：以 history 覆盖（你之前就是这个策略）
       this.$set(this.logGroupsBySession, sid, groupsFromHistory);
+
+      // ✅ 拉完历史 => 当前 session 未读清零
+      this.$set(this.unreadBySession, sid, false);
     },
 
-    onSessionChange(sessionId) {
-      const sid = sessionId && String(sessionId).trim() ? sessionId : null;
+    async onSessionChange(sessionId) {
+      const sid = sessionId && String(sessionId).trim() ? String(sessionId).trim() : null;
       this.activeSessionId = sid;
 
-      // ✅ 优化：同步写入 localStorage，确保刷新页面后能恢复默认会话
-      if (sid) {
-        window.localStorage.setItem("sessionId", sid);
-      } else {
-        window.localStorage.removeItem("sessionId");
-      }
+      // localStorage 同步
+      if (sid) window.localStorage.setItem("sessionId", sid);
+      else window.localStorage.removeItem("sessionId");
 
       if (sid && !this.logGroupsBySession[sid]) {
         this.$set(this.logGroupsBySession, sid, []);
       }
-
-      // ✅ 如果侧边栏此刻是打开的，切换 session 也要立刻拉取对应 historyLog
-      if (this.sideOpen) {
-        this.loadHistoryLogsForActiveSession();
+      if (sid && this.unreadBySession[sid] == null) {
+        this.$set(this.unreadBySession, sid, false);
       }
 
-      /**
-       * ✅ 可选策略：
-       * - 如果你希望“切换 session 时 Chat UI 也强制回到干净状态”，打开下面一行
-       * - 如果不希望（保留 Chat 里的历史/输入等状态），就保持注释
-       */
-      // this.chatKey++;
+      // ✅ 关键：切 session 就拉历史（不再依赖点三个点）
+      if (sid) {
+        await this.loadHistoryLogsForActiveSession();
+      }
+
+      // ✅ 如果侧边栏开着，切会话后也算“已读”
+      if (this.sideOpen && sid) {
+        this.$set(this.unreadBySession, sid, false);
+      }
     },
 
+    /**
+     * ✅ 接收 Chat.vue 的日志流事件（不打开侧边栏也会写入）
+     * 约定：evt = { type: "tool.log" | "error" | ... , ts, sessionId, logGroupId, data:{message} }
+     */
     onToolEvent(evt) {
-      if (!evt || evt.type !== "tool.log") return;
+      if (!evt) return;
+
+      // 只处理日志事件（你也可以扩展）
+      if (evt.type !== "tool.log") return;
 
       const sid = evt.sessionId || this.activeSessionId || "default";
-      const groupId = evt.logGroupId || "unknown";
-      const msg = evt?.data?.message || "";
+      const groupId = evt.logGroupId != null ? String(evt.logGroupId) : "unknown";
+      const msg = evt?.data?.message != null ? String(evt.data.message) : "";
 
       if (!this.logGroupsBySession[sid]) this.$set(this.logGroupsBySession, sid, []);
+      if (this.unreadBySession[sid] == null) this.$set(this.unreadBySession, sid, false);
 
       const arr = this.logGroupsBySession[sid];
 
       // 找到同一个 groupId 的框（一次 query 一个 groupId）
-      let g = arr.find(x => String(x.id) === String(groupId));
+      let g = arr.find(x => String(x.id) === groupId);
 
       if (!g) {
-        // ✅ 新建一个框（一次提问一个框）
         g = {
           id: groupId,
           ts: evt.ts || Date.now(),
@@ -182,15 +200,19 @@ export default {
         arr.push(g);
       }
 
-      // ✅ 追加到同一个框
+      // 追加文本
       g.text += (msg + "\n");
+
+      // ✅ 不打开侧边栏也标记未读红点（仅当前 session）
+      if (!this.sideOpen && sid === this.activeSessionId) {
+        this.$set(this.unreadBySession, sid, true);
+      }
     }
   }
 };
 </script>
 
 <style>
-/* ========= Global Layout ========= */
 html, body {
   height: 100%;
   margin: 0;
@@ -204,7 +226,6 @@ html, body {
 
 /* ========= Design Tokens (全局主题变量) ========= */
 :root {
-  /* 基础背景/卡片 */
   --ws-bg: #0f172a;
   --ws-workbench-grad:
       radial-gradient(1200px 600px at 20% 10%, rgba(96, 165, 250, 0.10) 0%, rgba(96, 165, 250, 0) 60%),
@@ -216,44 +237,36 @@ html, body {
   --card-radius: 18px;
   --card-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
 
-  /* Header */
   --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
   --divider: 1px solid rgba(255, 255, 255, 0.08);
 
-  /* 文本 */
   --t-strong: rgba(255, 255, 255, 0.92);
   --t-main: rgba(255, 255, 255, 0.86);
   --t-sub: rgba(255, 255, 255, 0.60);
   --t-muted: rgba(255, 255, 255, 0.45);
 
-  /* Accent */
   --accent: rgba(96, 165, 250, 0.95);
   --accent-soft: rgba(96, 165, 250, 0.18);
   --accent-border: rgba(96, 165, 250, 0.25);
 
-  /* Purple accent */
   --accent2: rgba(139, 92, 246, 0.95);
 
-  /* 控件 */
   --ctl-bg: rgba(255, 255, 255, 0.06);
   --ctl-bg-hover: rgba(255, 255, 255, 0.10);
   --ctl-border: 1px solid rgba(255, 255, 255, 0.10);
   --ctl-radius: 12px;
 
-  /* 输入框 */
   --input-bg: rgba(255, 255, 255, 0.06);
   --input-border: 1px solid rgba(255, 255, 255, 0.10);
   --focus-border: rgba(96, 165, 250, 0.70);
   --focus-ring: 0 0 0 2px rgba(96, 165, 250, 0.18);
 
-  /* 气泡 */
   --bubble-border: 1px solid rgba(255, 255, 255, 0.08);
   --bubble-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
   --bubble-radius: 14px;
   --bubble-ai: rgba(255, 255, 255, 0.06);
   --bubble-user-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.28) 0%, rgba(96, 165, 250, 0.16) 100%);
 
-  /* Scrollbar */
   --sb-track: rgba(255, 255, 255, 0.05);
   --sb-thumb-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.42), rgba(255, 255, 255, 0.18));
   --sb-thumb-grad-hover: linear-gradient(180deg, rgba(96, 165, 250, 0.60), rgba(255, 255, 255, 0.22));
@@ -268,7 +281,6 @@ html, body {
   color: var(--t-main);
 }
 
-/* el-row 用 flex + gap */
 .full-row {
   height: 100%;
   width: 100%;

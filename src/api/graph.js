@@ -23,7 +23,7 @@ export const getAllGraph = async (scene) => {
         if (response && response.data) {
             const raw = response.data.data
 
-            const models = [...new Set(raw.nodes.map(n => n.$metadata.$model))]
+            const models = [...new Set(raw.nodes.map(n => n.$metadata.$modelId))]
 
             const categoryIndexMap = new Map(models.map((m, i) => [m, i]))
 
@@ -32,7 +32,7 @@ export const getAllGraph = async (scene) => {
                 nodes: raw.nodes.map(n => ({
                     id: n.$metadata.$name,
                     name: n.$metadata.$name,
-                    category: categoryIndexMap.get(n.$metadata.$model)
+                    category: categoryIndexMap.get(n.$metadata.$modelId)
                 })),
                 relations: raw.relations.map(r => ({
                     source: r.$sourceName,
