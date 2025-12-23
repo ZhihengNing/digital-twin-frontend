@@ -119,10 +119,10 @@
                     <span class="loading-text">思考中…</span>
                   </div>
 
-                  <!-- ✅ Markdown 渲染（流式节流刷新） -->
+                  <!-- ✅ 流式阶段：纯文本预览；Done 后：Markdown -->
                   <div v-else class="message-text md" v-html="msg.rendered"></div>
 
-                  <!-- ✅ 流式打字光标（更像 ChatGPT） -->
+                  <!-- ✅ 流式打字光标 -->
                   <span v-if="sending && !msg.loading" class="typing-caret"></span>
                 </div>
               </div>
@@ -186,9 +186,9 @@ import hljs from "highlight.js";
 // import DOMPurify from "dompurify";
 
 const md = new MarkdownIt({
-  html: false, // ✅ 不允许原始 HTML，避免注入
+  html: false, // ✅ 不允许原始 HTML
   linkify: true,
-  breaks: true,
+  breaks: false, // ✅ 更接近 Typora / GFM 段落行为（减少“空行爆炸”）
   highlight: (str, lang) => {
     try {
       if (lang && hljs.getLanguage(lang)) {
@@ -219,11 +219,7 @@ export default {
 
       logAbortCtl: null,
       bizAbortCtl: null,
-      requestToken: 0,
-
-      // ✅ Markdown 渲染节流
-      _renderTimer: null,
-      _renderQueue: new Set()
+      requestToken: 0
     };
   },
   computed: {
@@ -246,14 +242,28 @@ export default {
   beforeDestroy() {
     try { this.logAbortCtl?.abort(); } catch (e) {}
     try { this.bizAbortCtl?.abort(); } catch (e) {}
-    try {
-      if (this._renderTimer) clearTimeout(this._renderTimer);
-      this._renderTimer = null;
-      this._renderQueue && this._renderQueue.clear();
-    } catch (e) {}
   },
   methods: {
-    // ✅ 流式时如果 ``` 没闭合，会导致渲染吞内容：这里补齐
+    // ✅ 统一换行/空行：更接近 typora
+    normalizeText(text) {
+      let s = String(text || "");
+      s = s.replace(/\r\n/g, "\n");
+      s = s.replace(/\n{3,}/g, "\n\n");
+      s = s.replace(/[ \t]+\n/g, "\n");
+      return s;
+    },
+
+    // ✅ 清理流式/拼接产生的尾部噪声：例如 “等)])”
+    stripStreamArtifacts(text) {
+      let s = String(text || "");
+      // 只处理“尾部”连续括号类噪声（2 个以上才清），避免误伤正文
+      s = s.replace(/([)\]\}]){2,}\s*$/g, "");
+      // 特判“等)]) / 等}}}”之类，尽量回归到“等”
+      s = s.replace(/等[)\]\}]{2,}\s*$/g, "等");
+      return s;
+    },
+
+    // ✅ 防止 code fence 未闭合导致最终渲染错乱（Done 时也用）
     safeMarkdownSource(text) {
       const s = String(text || "");
       const fenceCount = (s.match(/```/g) || []).length;
@@ -261,7 +271,7 @@ export default {
       return s;
     },
 
-    // ✅ 渲染失败降级：纯文本转 HTML（用于 v-html）
+    // ✅ 流式阶段：纯文本预览（稳定，不会标题/表格/列表跳动）
     plainToSafeHtml(text) {
       return String(text || "")
           .replace(/&/g, "&amp;")
@@ -270,49 +280,17 @@ export default {
           .replace(/\n/g, "<br/>");
     },
 
-    // ✅ 节流渲染：避免每 token 都 heavy re-render
-    scheduleRender(idx) {
-      // ✅ 任何异常都不允许影响业务流：必须吞掉
+    // ✅ Done：最终一次 markdown 渲染（像 typora）
+    renderMarkdownFinal(raw) {
+      const normalized = this.normalizeText(this.stripStreamArtifacts(raw));
+      const src = this.safeMarkdownSource(normalized);
       try {
-        if (!this._renderQueue) this._renderQueue = new Set();
-        this._renderQueue.add(idx);
+        let html = md.render(src);
+        // html = DOMPurify.sanitize(html);
+        return html;
       } catch (e) {
-        return;
+        return this.plainToSafeHtml(normalized);
       }
-
-      if (this._renderTimer) return;
-
-      this._renderTimer = setTimeout(() => {
-        let list = [];
-        try {
-          list = Array.from(this._renderQueue || []);
-          this._renderQueue && this._renderQueue.clear();
-        } catch (e) {
-          try { this._renderQueue = new Set(); } catch (e2) {}
-        } finally {
-          this._renderTimer = null;
-        }
-
-        list.forEach(i => {
-          const msg = this.messages[i];
-          if (!msg || msg.isUser) return;
-
-          try {
-            const src = this.safeMarkdownSource(msg.raw || "");
-            let html = md.render(src);
-
-            // ✅ 可选：更安全（防 XSS）
-            // html = DOMPurify.sanitize(html);
-
-            this.$set(msg, "rendered", html);
-          } catch (e) {
-            // ✅ 渲染失败：降级纯文本，不影响流
-            this.$set(msg, "rendered", this.plainToSafeHtml(msg.raw || ""));
-          }
-        });
-
-        this.scrollToBottom();
-      }, 60);
     },
 
     async refreshSessionsAndInit() {
@@ -362,15 +340,12 @@ export default {
       this.cancelCreateInline();
 
       await this.fetchChatHistory();
-
-      // ✅ 通知 App：切 session（App 会在这里拉 historyLog）
       this.$emit("session-change", val);
     },
 
     async fetchChatHistory() {
       if (!this.hasSession) return;
 
-      // loading 占位
       this.messages = [{ isUser: false, raw: "", rendered: "", loading: true }];
 
       const res = await getHistoryMessages();
@@ -378,19 +353,13 @@ export default {
 
       this.messages = (list || []).map(x => {
         const isUser = (x.role || "").toUpperCase() === "USER";
-        const raw = x.content || "";
+        const raw = this.normalizeText(this.stripStreamArtifacts(x.content || ""));
         return isUser
             ? { isUser: true, raw, loading: false }
             : {
               isUser: false,
               raw,
-              rendered: (() => {
-                try {
-                  return md.render(this.safeMarkdownSource(raw));
-                } catch (e) {
-                  return this.plainToSafeHtml(raw);
-                }
-              })(),
+              rendered: this.renderMarkdownFinal(raw),
               loading: false
             };
       });
@@ -423,7 +392,6 @@ export default {
       this.messages = [];
       this.cancelCreateInline();
 
-      // ✅ 通知 App：切到新 session（App 会拉 historyLog；此时可能为空）
       this.$emit("session-change", name);
     },
 
@@ -499,7 +467,7 @@ export default {
       this.inputContent = "";
       this.scrollToBottom();
 
-      // AI 占位（raw/rendered 分离）
+      // AI 占位
       const aiIdx = this.messages.push({
         isUser: false,
         raw: "",
@@ -508,7 +476,7 @@ export default {
       }) - 1;
 
       try {
-        // 日志流（解耦）
+        // 日志流
         this.startLogStream(myToken).catch((e) => {
           if (isAbortError(e)) return;
           if (myToken !== this.requestToken) return;
@@ -528,7 +496,6 @@ export default {
           signal: this.bizAbortCtl?.signal,
 
           onToken: (t) => {
-            // ✅ 任何异常都必须吞掉，否则会被外层 catch 当成“请求失败”
             try {
               if (myToken !== this.requestToken) return;
               if (aiIdx < 0 || aiIdx >= this.messages.length) return;
@@ -538,12 +505,13 @@ export default {
 
               if (msg.loading) msg.loading = false;
 
-              msg.raw = (msg.raw || "") + String(t);
+              // ✅ 关键：流式阶段只做纯文本预览（稳定）
+              msg.raw = this.normalizeText((msg.raw || "") + String(t));
+              msg.raw = this.stripStreamArtifacts(msg.raw);
 
-              // ✅ 节流渲染
-              this.scheduleRender(aiIdx);
+              this.$set(msg, "rendered", this.plainToSafeHtml(msg.raw));
+              this.scrollToBottom();
             } catch (err) {
-              // 不要 throw！只记录
               // eslint-disable-next-line no-console
               console.error("onToken failed:", err);
             }
@@ -555,13 +523,16 @@ export default {
               if (aiIdx < 0 || aiIdx >= this.messages.length) return;
 
               const msg = this.messages[aiIdx];
-              if (msg) msg.loading = false;
-
-              // ✅ 最终强制渲染一次
-              this.scheduleRender(aiIdx);
+              if (msg) {
+                msg.loading = false;
+                // ✅ Done：最终一次 Markdown 渲染
+                this.$set(msg, "rendered", this.renderMarkdownFinal(msg.raw));
+              }
 
               try { this.logAbortCtl?.abort(); } catch (e) {}
               this.logAbortCtl = null;
+
+              this.scrollToBottom();
             } catch (err) {
               // eslint-disable-next-line no-console
               console.error("onDone failed:", err);
@@ -583,19 +554,12 @@ export default {
         if (aiIdx >= 0 && aiIdx < this.messages.length) {
           const old = this.messages[aiIdx];
           const oldText = old?.raw || "";
-          const raw = oldText ? (oldText + "\n\n请求失败") : "请求失败";
-
-          let rendered = "";
-          try {
-            rendered = md.render(this.safeMarkdownSource(raw));
-          } catch (err) {
-            rendered = this.plainToSafeHtml(raw);
-          }
+          const raw = this.normalizeText(oldText ? (oldText + "\n\n请求失败") : "请求失败");
 
           this.messages.splice(aiIdx, 1, {
             isUser: false,
             raw,
-            rendered,
+            rendered: this.renderMarkdownFinal(raw),
             loading: false
           });
         }
@@ -637,7 +601,11 @@ export default {
   "Segoe UI Emoji";
 }
 
-.message-text { white-space: pre-wrap; word-break: break-word; }
+/* ✅ 不要全局 pre-wrap（会放大 v-html 的段落/表格空行） */
+.message-text { word-break: break-word; }
+
+/* ✅ 用户纯文本保持换行 */
+.user-bubble .message-text { white-space: pre-wrap; }
 
 .chat-card {
   width: 100%;
@@ -922,6 +890,9 @@ export default {
   font-size: 14px;
   line-height: 1.85;
   letter-spacing: 0.2px;
+
+  /* ✅ 关键：像网页/Typora 一样排版，不要 pre-wrap */
+  white-space: normal;
 }
 
 /* 段落间距 */
@@ -952,6 +923,7 @@ export default {
   border: 1px solid rgba(255,255,255,0.10);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.92em;
+  white-space: pre;
 }
 
 /* 代码块 */
@@ -962,6 +934,7 @@ export default {
   background: rgba(2, 6, 23, 0.72);
   border: 1px solid rgba(255,255,255,0.10);
   overflow: auto;
+  white-space: pre;
 }
 .message-text.md ::v-deep pre.hljs code {
   background: transparent;
@@ -969,6 +942,7 @@ export default {
   padding: 0;
   font-size: 13px;
   line-height: 1.7;
+  white-space: pre;
 }
 
 /* 引用 */
