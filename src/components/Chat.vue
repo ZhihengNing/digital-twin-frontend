@@ -119,11 +119,15 @@
                     <span class="loading-text">思考中…</span>
                   </div>
 
-                  <!-- ✅ 流式阶段：纯文本预览；Done 后：Markdown -->
-                  <div v-else class="message-text md" v-html="msg.rendered"></div>
+                  <!-- ✅ Markdown 安全渲染（禁用原始 HTML + DOMPurify 消毒） -->
+                  <div
+                      v-else
+                      class="message-text md"
+                      v-html="msg.html || ''"
+                  ></div>
 
-                  <!-- ✅ 流式打字光标 -->
-                  <span v-if="sending && !msg.loading" class="typing-caret"></span>
+                  <!-- 流式打字光标 -->
+                  <span v-if="sending && !msg.loading && msg.isStreaming" class="typing-caret"></span>
                 </div>
               </div>
             </div>
@@ -132,7 +136,7 @@
             <div v-else class="user-message">
               <div class="bubble-wrap user-wrap">
                 <div class="message-bubble user-bubble">
-                  <div class="message-text">{{ msg.raw }}</div>
+                  <div class="message-text raw-text">{{ msg.raw }}</div>
                 </div>
               </div>
               <el-avatar class="avatar user" :size="36">你</el-avatar>
@@ -180,29 +184,40 @@ import {
 } from "@/api/chat";
 
 import MarkdownIt from "markdown-it";
-import hljs from "highlight.js";
+import DOMPurify from "dompurify";
 
-// ✅ 可选：更安全（防 XSS）
-// import DOMPurify from "dompurify";
-
+// ✅ Markdown 渲染器：禁用原始 HTML，保留换行/链接
 const md = new MarkdownIt({
-  html: false, // ✅ 不允许原始 HTML
+  html: false,
   linkify: true,
-  breaks: false, // ✅ 更接近 Typora / GFM 段落行为（减少“空行爆炸”）
-  highlight: (str, lang) => {
-    try {
-      if (lang && hljs.getLanguage(lang)) {
-        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>`;
-      }
-    } catch (e) {}
-    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
-  }
+  breaks: true,
+  typographer: true
 });
+
+// ✅ 安全链接：让 linkify 的链接在新窗口打开
+const defaultLinkOpen =
+    md.renderer.rules.link_open ||
+    function (tokens, idx, options, env, self) {
+      return self.renderToken(tokens, idx, options);
+    };
+
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  // target="_blank"
+  const aIndex = tokens[idx].attrIndex("target");
+  if (aIndex < 0) tokens[idx].attrPush(["target", "_blank"]);
+  else tokens[idx].attrs[aIndex][1] = "_blank";
+
+  // rel="noopener noreferrer"
+  const rIndex = tokens[idx].attrIndex("rel");
+  if (rIndex < 0) tokens[idx].attrPush(["rel", "noopener noreferrer"]);
+  else tokens[idx].attrs[rIndex][1] = "noopener noreferrer";
+
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
 
 export default {
   name: "ChatGPTLikeDialog",
   props: {
-    // ✅ App 控制：当前 session 有未读日志/需要亮红点
     sideDot: { type: Boolean, default: false }
   },
   data() {
@@ -219,7 +234,11 @@ export default {
 
       logAbortCtl: null,
       bizAbortCtl: null,
-      requestToken: 0
+      requestToken: 0,
+
+      // ✅ 流式 Markdown 渲染节流
+      _mdFlushTimer: null,
+      _mdFlushIntervalMs: 60
     };
   },
   computed: {
@@ -229,7 +248,6 @@ export default {
     hasSessionList() {
       return (this.assistants || []).length > 0;
     },
-    // ✅ 红点：业务流 sending 或 App 标记未读
     showSideDot() {
       return this.sending || this.sideDot;
     }
@@ -242,55 +260,34 @@ export default {
   beforeDestroy() {
     try { this.logAbortCtl?.abort(); } catch (e) {}
     try { this.bizAbortCtl?.abort(); } catch (e) {}
+    try { if (this._mdFlushTimer) clearTimeout(this._mdFlushTimer); } catch (e) {}
+    this._mdFlushTimer = null;
   },
   methods: {
-    // ✅ 统一换行/空行：更接近 typora
-    normalizeText(text) {
-      let s = String(text || "");
-      s = s.replace(/\r\n/g, "\n");
-      s = s.replace(/\n{3,}/g, "\n\n");
-      s = s.replace(/[ \t]+\n/g, "\n");
-      return s;
+    // ✅ 把 Markdown 文本渲染成安全 HTML
+    renderMdSafe(text) {
+      const src = String(text || "");
+      const html = md.render(src);
+
+      // DOMPurify：保险起见，即使未来误开 html 也不怕
+      return DOMPurify.sanitize(html, {
+        USE_PROFILES: { html: true },
+        FORBID_TAGS: ["style", "script", "iframe"],
+        FORBID_ATTR: ["style", "onerror", "onclick", "onload"]
+      });
     },
 
-    // ✅ 清理流式/拼接产生的尾部噪声：例如 “等)])”
-    stripStreamArtifacts(text) {
-      let s = String(text || "");
-      // 只处理“尾部”连续括号类噪声（2 个以上才清），避免误伤正文
-      s = s.replace(/([)\]\}]){2,}\s*$/g, "");
-      // 特判“等)]) / 等}}}”之类，尽量回归到“等”
-      s = s.replace(/等[)\]\}]{2,}\s*$/g, "等");
-      return s;
-    },
-
-    // ✅ 防止 code fence 未闭合导致最终渲染错乱（Done 时也用）
-    safeMarkdownSource(text) {
-      const s = String(text || "");
-      const fenceCount = (s.match(/```/g) || []).length;
-      if (fenceCount % 2 === 1) return s + "\n```";
-      return s;
-    },
-
-    // ✅ 流式阶段：纯文本预览（稳定，不会标题/表格/列表跳动）
-    plainToSafeHtml(text) {
-      return String(text || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\n/g, "<br/>");
-    },
-
-    // ✅ Done：最终一次 markdown 渲染（像 typora）
-    renderMarkdownFinal(raw) {
-      const normalized = this.normalizeText(this.stripStreamArtifacts(raw));
-      const src = this.safeMarkdownSource(normalized);
-      try {
-        let html = md.render(src);
-        // html = DOMPurify.sanitize(html);
-        return html;
-      } catch (e) {
-        return this.plainToSafeHtml(normalized);
-      }
+    // ✅ 节流刷新（避免 token 太碎导致每 token render 一次）
+    scheduleMdFlush(msg) {
+      if (this._mdFlushTimer) return;
+      this._mdFlushTimer = setTimeout(() => {
+        this._mdFlushTimer = null;
+        try {
+          if (!msg || msg.isUser) return;
+          msg.html = this.renderMdSafe(msg.raw);
+          this.scrollToBottom();
+        } catch (e) {}
+      }, this._mdFlushIntervalMs);
     },
 
     async refreshSessionsAndInit() {
@@ -346,22 +343,22 @@ export default {
     async fetchChatHistory() {
       if (!this.hasSession) return;
 
-      this.messages = [{ isUser: false, raw: "", rendered: "", loading: true }];
+      this.messages = [{ isUser: false, raw: "", html: "", loading: true, isStreaming: false }];
 
       const res = await getHistoryMessages();
       const list = res?.data || res || [];
 
       this.messages = (list || []).map(x => {
         const isUser = (x.role || "").toUpperCase() === "USER";
-        const raw = this.normalizeText(this.stripStreamArtifacts(x.content || ""));
-        return isUser
-            ? { isUser: true, raw, loading: false }
-            : {
-              isUser: false,
-              raw,
-              rendered: this.renderMarkdownFinal(raw),
-              loading: false
-            };
+        const raw = x.content || "";
+        if (isUser) return { isUser: true, raw, loading: false };
+        return {
+          isUser: false,
+          raw,
+          html: this.renderMdSafe(raw),
+          loading: false,
+          isStreaming: false
+        };
       });
 
       this.scrollToBottom();
@@ -426,11 +423,18 @@ export default {
       try { this.bizAbortCtl?.abort(); } catch (e) {}
       this.bizAbortCtl = null;
 
+      try { if (this._mdFlushTimer) clearTimeout(this._mdFlushTimer); } catch (e) {}
+      this._mdFlushTimer = null;
+
       let idx = -1;
       for (let i = this.messages.length - 1; i >= 0; i--) {
         if (this.messages[i] && this.messages[i].loading) { idx = i; break; }
       }
       if (idx >= 0) this.messages.splice(idx, 1);
+
+      // 如果最后一条 assistant 是流式中，去掉光标
+      const last = this.messages[this.messages.length - 1];
+      if (last && !last.isUser) last.isStreaming = false;
 
       this.sending = false;
       this.scrollToBottom();
@@ -471,8 +475,9 @@ export default {
       const aiIdx = this.messages.push({
         isUser: false,
         raw: "",
-        rendered: "",
-        loading: true
+        html: "",
+        loading: true,
+        isStreaming: true
       }) - 1;
 
       try {
@@ -505,14 +510,13 @@ export default {
 
               if (msg.loading) msg.loading = false;
 
-              // ✅ 关键：流式阶段只做纯文本预览（稳定）
-              msg.raw = this.normalizeText((msg.raw || "") + String(t));
-              msg.raw = this.stripStreamArtifacts(msg.raw);
+              msg.raw = (msg.raw || "") + String(t);
 
-              this.$set(msg, "rendered", this.plainToSafeHtml(msg.raw));
+              // ✅ 流式阶段：节流刷新 HTML（避免每 token render）
+              this.scheduleMdFlush(msg);
+
               this.scrollToBottom();
             } catch (err) {
-              // eslint-disable-next-line no-console
               console.error("onToken failed:", err);
             }
           },
@@ -523,18 +527,22 @@ export default {
               if (aiIdx < 0 || aiIdx >= this.messages.length) return;
 
               const msg = this.messages[aiIdx];
-              if (msg) {
-                msg.loading = false;
-                // ✅ Done：最终一次 Markdown 渲染
-                this.$set(msg, "rendered", this.renderMarkdownFinal(msg.raw));
-              }
+              if (!msg) return;
+
+              msg.loading = false;
+              msg.isStreaming = false;
+
+              // ✅ Done：强制渲染最终版（保证 Markdown 闭合后的最终效果）
+              msg.html = this.renderMdSafe(msg.raw);
 
               try { this.logAbortCtl?.abort(); } catch (e) {}
               this.logAbortCtl = null;
 
+              try { if (this._mdFlushTimer) clearTimeout(this._mdFlushTimer); } catch (e) {}
+              this._mdFlushTimer = null;
+
               this.scrollToBottom();
             } catch (err) {
-              // eslint-disable-next-line no-console
               console.error("onDone failed:", err);
             }
           }
@@ -554,13 +562,14 @@ export default {
         if (aiIdx >= 0 && aiIdx < this.messages.length) {
           const old = this.messages[aiIdx];
           const oldText = old?.raw || "";
-          const raw = this.normalizeText(oldText ? (oldText + "\n\n请求失败") : "请求失败");
+          const raw = oldText ? (oldText + "\n\n请求失败") : "请求失败";
 
           this.messages.splice(aiIdx, 1, {
             isUser: false,
             raw,
-            rendered: this.renderMarkdownFinal(raw),
-            loading: false
+            html: this.renderMdSafe(raw),
+            loading: false,
+            isStreaming: false
           });
         }
 
@@ -579,6 +588,9 @@ export default {
 
           try { this.bizAbortCtl?.abort(); } catch (e) {}
           this.bizAbortCtl = null;
+
+          try { if (this._mdFlushTimer) clearTimeout(this._mdFlushTimer); } catch (e) {}
+          this._mdFlushTimer = null;
         }
         this.scrollToBottom();
       }
@@ -601,10 +613,15 @@ export default {
   "Segoe UI Emoji";
 }
 
-/* ✅ 不要全局 pre-wrap（会放大 v-html 的段落/表格空行） */
-.message-text { word-break: break-word; }
+/* ✅ 新增纯文本样式，保留原始换行/空格 */
+.raw-text {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  font-size: 14px !important;
+  line-height: 1.8 !important;
+}
 
-/* ✅ 用户纯文本保持换行 */
+.message-text { word-break: break-word; }
 .user-bubble .message-text { white-space: pre-wrap; }
 
 .chat-card {
@@ -850,7 +867,6 @@ export default {
 .send-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
 .send-btn.is-stop{ background: linear-gradient(180deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.78)); }
 
-/* ✅ 三个点红点 */
 .more-wrap{
   position: relative;
   display: inline-flex;
@@ -869,7 +885,6 @@ export default {
   pointer-events: none;
 }
 
-/* ✅ 打字光标 */
 .typing-caret{
   display: inline-block;
   width: 8px;
@@ -885,103 +900,53 @@ export default {
   50%, 100% { opacity: 0; }
 }
 
-/* ✅ Markdown 渲染排版（AI 气泡内） */
-.message-text.md {
-  font-size: 14px;
-  line-height: 1.85;
-  letter-spacing: 0.2px;
+/* =========================
+   ✅ Markdown 美化（关键）
+   ========================= */
+.md ::v-deep p { margin: 0 0 8px; }
+.md ::v-deep ul,
+.md ::v-deep ol { margin: 6px 0 10px 18px; padding: 0; }
+.md ::v-deep li { margin: 4px 0; }
+.md ::v-deep strong { font-weight: 900; }
 
-  /* ✅ 关键：像网页/Typora 一样排版，不要 pre-wrap */
-  white-space: normal;
-}
-
-/* 段落间距 */
-.message-text.md ::v-deep p { margin: 0.35em 0; }
-
-/* 标题 */
-.message-text.md ::v-deep h1,
-.message-text.md ::v-deep h2,
-.message-text.md ::v-deep h3 {
-  margin: 0.7em 0 0.35em;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-}
-
-/* 列表 */
-.message-text.md ::v-deep ul,
-.message-text.md ::v-deep ol {
-  margin: 0.35em 0 0.35em 1.1em;
-  padding: 0;
-}
-.message-text.md ::v-deep li { margin: 0.18em 0; }
-
-/* 行内代码 */
-.message-text.md ::v-deep code {
-  padding: 0.12em 0.38em;
+.md ::v-deep code {
+  padding: 2px 6px;
   border-radius: 8px;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.92em;
-  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
 }
 
-/* 代码块 */
-.message-text.md ::v-deep pre.hljs {
-  margin: 0.55em 0;
-  padding: 12px 12px;
-  border-radius: 14px;
-  background: rgba(2, 6, 23, 0.72);
+.md ::v-deep pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.28);
   border: 1px solid rgba(255,255,255,0.10);
   overflow: auto;
-  white-space: pre;
 }
-.message-text.md ::v-deep pre.hljs code {
-  background: transparent;
-  border: none;
+.md ::v-deep pre code {
   padding: 0;
-  font-size: 13px;
-  line-height: 1.7;
-  white-space: pre;
+  border: none;
+  background: transparent;
 }
 
-/* 引用 */
-.message-text.md ::v-deep blockquote {
-  margin: 0.55em 0;
-  padding: 0.45em 0.8em;
-  border-left: 3px solid rgba(96,165,250,0.55);
-  background: rgba(96,165,250,0.10);
+.md ::v-deep blockquote {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 4px solid rgba(34,197,94,0.65);
+  background: rgba(34,197,94,0.08);
   border-radius: 10px;
   color: rgba(255,255,255,0.86);
 }
 
-/* 表格 */
-.message-text.md ::v-deep table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  margin: 0.6em 0;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.10);
-}
-.message-text.md ::v-deep th,
-.message-text.md ::v-deep td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  vertical-align: top;
-}
-.message-text.md ::v-deep th {
-  background: rgba(255,255,255,0.06);
-  font-weight: 900;
-}
-.message-text.md ::v-deep tr:last-child td { border-bottom: none; }
-
-/* 链接 */
-.message-text.md ::v-deep a {
+.md ::v-deep a {
   color: rgba(96,165,250,0.95);
   text-decoration: none;
-  font-weight: 800;
+  border-bottom: 1px solid rgba(96,165,250,0.35);
 }
-.message-text.md ::v-deep a:hover { text-decoration: underline; }
+.md ::v-deep a:hover {
+  border-bottom-color: rgba(96,165,250,0.75);
+}
 </style>

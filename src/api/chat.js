@@ -37,74 +37,8 @@ export async function resolveQuery(query, options) {
     }
 }
 
-export async function resolveQueryStream(query, options = {}) {
-    const ctrl = options.signal ? null : new AbortController();
-    const signal = options.signal || ctrl.signal;
 
-    const sessionId = window.localStorage.getItem("sessionId");
-    const scene = window.localStorage.getItem("scene");
 
-    const resp = await fetch(baseURL+"agent/chatStream", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json;charset=UTF-8",
-            // 你的自定义 header
-            sessionId,
-            scene,
-        },
-        body: JSON.stringify({ message: query }),
-        signal,
-    });
-
-    if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        throw new Error(`HTTP ${resp.status} ${resp.statusText}: ${text}`);
-    }
-
-    // ✅ 关键：ReadableStream 逐段读取
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-
-    let buffer = "";
-
-    try {
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-
-            let idx;
-            while ((idx = buffer.indexOf("\n")) >= 0) {
-                const line = buffer.slice(0, idx);
-                buffer = buffer.slice(idx + 1);
-
-                if (!line) continue;
-                // 这里 line 就是一个 token（或一段文本）
-                options.onToken?.(line);
-            }
-        }
-
-        // flush 残留
-        if (buffer) options.onToken?.(buffer);
-
-        options.onDone?.();
-    } catch (e) {
-        // 被终止不当作错误刷屏
-        const msg = String(e?.message || "").toLowerCase();
-        const isAbort =
-            e?.name === "AbortError" ||
-            msg.includes("aborted") ||
-            msg.includes("canceled") ||
-            msg.includes("cancelled");
-
-        if (!isAbort) options.onError?.(e);
-        throw e;
-    } finally {
-        try { reader.releaseLock(); } catch (_) {}
-    }
-}
 
 export async function getHistoryMessages() {
     try {
@@ -290,4 +224,102 @@ export function isAbortError(e) {
         msg.includes("canceled") ||
         msg.includes("cancelled")
     );
+}
+
+
+export async function resolveQueryStream(query, options = {}) {
+    const signal = options.signal;
+
+    const sessionId = window.localStorage.getItem("sessionId");
+    const scene = window.localStorage.getItem("scene");
+
+    const resp = await fetch(`${baseURL}agent/chatStream`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json;charset=UTF-8",
+            sessionId,
+            scene,
+            Accept: "text/event-stream",
+        },
+        body: JSON.stringify({ message: query }),
+        signal,
+    });
+
+    if (!resp.ok) throw new Error(`请求失败：HTTP ${resp.status} ${resp.statusText}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    let buffer = "";
+    let dataLines = [];
+
+    // ✅ 把 dataLines 拼成最终要追加的文本：
+    // - 默认 SSE 多行 data 用 \n 连接
+    // - 但对 Markdown 标题做一条“连行修复”： "##\n 建议" -> "## 建议"
+    const buildData = (lines) => {
+        if (!lines.length) return "";
+
+        // 原始拼接（SSE 规范）
+        let text = lines.join("\n");
+
+        // ✅ Markdown 标题连行修复（只修这一类，避免乱改正文）
+        // 1) "##\n建议" -> "## 建议"
+        // 2) "##\n 建议" -> "## 建议"（保留那个空格为 1 个）
+        text = text.replace(/^(#{1,6})\n ?/m, "$1 ");
+
+        return text;
+    };
+
+    const flushEvent = () => {
+        if (!dataLines.length) return;
+        const data = buildData(dataLines);
+        dataLines = [];
+        if (data) options.onToken?.(data);
+    };
+
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            buffer = buffer.replace(/\r\n/g, "\n");
+
+            let idx;
+            while ((idx = buffer.indexOf("\n")) >= 0) {
+                const line = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 1);
+
+                // 空行：event 边界
+                if (line === "") {
+                    flushEvent();
+                    continue;
+                }
+
+                // 注释行
+                if (line.startsWith(":")) continue;
+
+                if (line.startsWith("data:")) {
+                    // ✅ 关键：不要剥掉首空格！保留原始内容
+                    // SSE 允许 "data:" 后直接跟内容，也允许 "data: " 后跟内容
+                    // 我们把 "data:" 后面的部分原样取出（包含可能的首空格）
+                    const v = line.slice(5); // 可能以空格开头
+                    dataLines.push(v);
+                    continue;
+                }
+
+                // 兼容：非严格 SSE 的纯文本行
+                dataLines.push(line);
+            }
+        }
+
+        // 最后 flush 一次
+        flushEvent();
+        options.onDone?.();
+    } catch (e) {
+        options.onError?.(e);
+        throw e;
+    } finally {
+        try { reader.releaseLock(); } catch (e) {}
+    }
 }
