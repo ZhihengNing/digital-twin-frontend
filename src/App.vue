@@ -1,7 +1,8 @@
 <template>
   <div id="app">
     <div class="chat-page">
-      <el-row class="full-row">
+      <!-- ✅ 用 gutter 代替 gap，避免三列总宽 + gap 溢出 -->
+      <el-row class="full-row" :gutter="12">
         <el-col :span="leftSpan" class="full-col">
           <Graph class="full-content" :scene="scene" />
         </el-col>
@@ -19,7 +20,7 @@
 
         <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
           <SidePanel
-              class="full-content"
+              class="full-content side-panel"
               :groups="currentSessionLogs"
               :session-id="activeSessionId"
               @close="sideOpen = false"
@@ -78,7 +79,7 @@ export default {
       }
       this.$set(this.unreadBySession, this.activeSessionId, false);
 
-      // ✅ 你希望“选中 session 就拉历史”，所以：启动时有 session 也拉一次
+      // ✅ 启动时有 session 也拉一次
       this.loadHistoryLogsForActiveSession().catch(() => {});
     }
   },
@@ -86,7 +87,7 @@ export default {
   computed: {
     currentSessionLogs() {
       const sid = this.activeSessionId;
-      return (this.logGroupsBySession[sid] || []);
+      return this.logGroupsBySession[sid] || [];
     },
 
     // ✅ 给 Chat 的红点：当前 session 是否有未读
@@ -95,9 +96,15 @@ export default {
       return !!(sid && this.unreadBySession[sid]);
     },
 
-    leftSpan() { return this.sideOpen ? 11 : 16; },
-    chatSpan() { return this.sideOpen ? 7 : 8; },
-    sideSpan() { return 6; }
+    leftSpan() {
+      return this.sideOpen ? 11 : 16;
+    },
+    chatSpan() {
+      return this.sideOpen ? 7 : 8;
+    },
+    sideSpan() {
+      return 6;
+    }
   },
 
   methods: {
@@ -111,9 +118,10 @@ export default {
     },
 
     async loadHistoryLogsForActiveSession() {
-      const sid = this.activeSessionId && String(this.activeSessionId).trim()
-          ? String(this.activeSessionId).trim()
-          : null;
+      const sid =
+          this.activeSessionId && String(this.activeSessionId).trim()
+              ? String(this.activeSessionId).trim()
+              : null;
 
       if (!sid) return;
 
@@ -125,7 +133,7 @@ export default {
       const arr = Array.isArray(list) ? list : [];
 
       const groupsFromHistory = arr
-          .filter(s => s != null && String(s).trim() !== "")
+          .filter((s) => s != null && String(s).trim() !== "")
           .map((text, idx) => ({
             id: `hist_${idx + 1}`,
             ts: Date.now(),
@@ -134,7 +142,7 @@ export default {
             source: "history"
           }));
 
-      // ✅ 切换 session 时：以 history 覆盖（你之前就是这个策略）
+      // ✅ 切换 session 时：以 history 覆盖
       this.$set(this.logGroupsBySession, sid, groupsFromHistory);
 
       // ✅ 拉完历史 => 当前 session 未读清零
@@ -156,7 +164,7 @@ export default {
         this.$set(this.unreadBySession, sid, false);
       }
 
-      // ✅ 关键：切 session 就拉历史（不再依赖点三个点）
+      // ✅ 切 session 就拉历史
       if (sid) {
         await this.loadHistoryLogsForActiveSession();
       }
@@ -174,7 +182,7 @@ export default {
     onToolEvent(evt) {
       if (!evt) return;
 
-      // 只处理日志事件（你也可以扩展）
+      // 只处理日志事件
       if (evt.type !== "tool.log") return;
 
       const sid = evt.sessionId || this.activeSessionId || "default";
@@ -187,7 +195,7 @@ export default {
       const arr = this.logGroupsBySession[sid];
 
       // 找到同一个 groupId 的框（一次 query 一个 groupId）
-      let g = arr.find(x => String(x.id) === groupId);
+      let g = arr.find((x) => String(x.id) === groupId);
 
       if (!g) {
         g = {
@@ -201,7 +209,7 @@ export default {
       }
 
       // 追加文本
-      g.text += (msg + "\n");
+      g.text += msg + "\n";
 
       // ✅ 不打开侧边栏也标记未读红点（仅当前 session）
       if (!this.sideOpen && sid === this.activeSessionId) {
@@ -213,11 +221,13 @@ export default {
 </script>
 
 <style>
-html, body {
+html,
+body {
   height: 100%;
   margin: 0;
   overflow: hidden;
 }
+
 #app {
   height: 100%;
   overflow: hidden;
@@ -227,10 +237,17 @@ html, body {
 /* ========= Design Tokens (全局主题变量) ========= */
 :root {
   --ws-bg: #0f172a;
-  --ws-workbench-grad:
-      radial-gradient(1200px 600px at 20% 10%, rgba(96, 165, 250, 0.10) 0%, rgba(96, 165, 250, 0) 60%),
-      radial-gradient(1000px 600px at 80% 20%, rgba(139, 92, 246, 0.10) 0%, rgba(139, 92, 246, 0) 55%),
-      linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+  --ws-workbench-grad: radial-gradient(
+      1200px 600px at 20% 10%,
+      rgba(96, 165, 250, 0.10) 0%,
+      rgba(96, 165, 250, 0) 60%
+  ),
+  radial-gradient(
+      1000px 600px at 80% 20%,
+      rgba(139, 92, 246, 0.10) 0%,
+      rgba(139, 92, 246, 0) 55%
+  ),
+  linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
 
   --card-bg-grad: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.98));
   --card-border: 1px solid rgba(255, 255, 255, 0.08);
@@ -265,11 +282,19 @@ html, body {
   --bubble-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
   --bubble-radius: 14px;
   --bubble-ai: rgba(255, 255, 255, 0.06);
-  --bubble-user-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.28) 0%, rgba(96, 165, 250, 0.16) 100%);
+  --bubble-user-grad: linear-gradient(
+      180deg,
+      rgba(96, 165, 250, 0.28) 0%,
+      rgba(96, 165, 250, 0.16) 100%
+  );
 
   --sb-track: rgba(255, 255, 255, 0.05);
   --sb-thumb-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.42), rgba(255, 255, 255, 0.18));
-  --sb-thumb-grad-hover: linear-gradient(180deg, rgba(96, 165, 250, 0.60), rgba(255, 255, 255, 0.22));
+  --sb-thumb-grad-hover: linear-gradient(
+      180deg,
+      rgba(96, 165, 250, 0.60),
+      rgba(255, 255, 255, 0.22)
+  );
 }
 
 /* ========= Workbench ========= */
@@ -281,24 +306,50 @@ html, body {
   color: var(--t-main);
 }
 
+/* ✅ 这里不要 gap，使用 el-row gutter */
 .full-row {
   height: 100%;
   width: 100%;
   margin: 0 !important;
-  display: flex;
-  gap: 12px;
   padding: 12px;
   box-sizing: border-box;
+
+  /* 你要保持 flex 也可以，但别再配 gap */
+  display: flex;
+  min-width: 0;
 }
+
 .full-col {
   height: 100%;
   min-height: 0;
   display: flex;
   box-sizing: border-box;
+
+  /* ✅ 关键：防止内容把列撑爆导致越界 */
+  min-width: 0;
 }
+
+/* 让三块内容都能正确收缩 */
 .full-content {
   flex: 1;
   height: 100%;
   min-height: 0;
+
+  /* ✅ 关键：内部溢出走滚动/截断，不撑爆外层 */
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ✅ SidePanel 内容常出现长 JSON / 日志，强制可换行，避免撑爆 */
+.side-panel,
+.side-panel * {
+  max-width: 100%;
+}
+
+.side-panel pre,
+.side-panel code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 </style>
