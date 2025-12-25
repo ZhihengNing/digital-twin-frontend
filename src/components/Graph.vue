@@ -4,7 +4,7 @@
     <div class="rg-header">
       <div class="rg-title">
         <span class="rg-dot"></span>
-        <span class="rg-title-text">数字孪生场景{{ scene }}</span>
+        <span class="rg-title-text">数字孪生场景 {{ scene }}</span>
       </div>
       <div class="rg-actions">
         <button class="rg-btn" @click="fitView">自适应</button>

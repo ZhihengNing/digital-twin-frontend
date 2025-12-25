@@ -147,8 +147,6 @@
           >
             <!-- Assistant -->
             <div v-if="!msg.isUser" class="robot-message">
-              <el-avatar class="avatar assistant" :size="36">AI</el-avatar>
-
               <div class="bubble-wrap">
                 <div class="message-bubble robot-bubble">
                   <div v-if="msg.loading" class="loading-row">
@@ -179,7 +177,6 @@
                   <div class="message-text raw-text">{{ msg.raw }}</div>
                 </div>
               </div>
-              <el-avatar class="avatar user" :size="36">你</el-avatar>
             </div>
           </div>
         </div>
@@ -242,12 +239,10 @@ const defaultLinkOpen =
     };
 
 md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
-  // target="_blank"
   const aIndex = tokens[idx].attrIndex("target");
   if (aIndex < 0) tokens[idx].attrPush(["target", "_blank"]);
   else tokens[idx].attrs[aIndex][1] = "_blank";
 
-  // rel="noopener noreferrer"
   const rIndex = tokens[idx].attrIndex("rel");
   if (rIndex < 0) tokens[idx].attrPush(["rel", "noopener noreferrer"]);
   else tokens[idx].attrs[rIndex][1] = "noopener noreferrer";
@@ -316,8 +311,6 @@ export default {
     renderMdSafe(text) {
       const src = String(text || "");
       const html = md.render(src);
-
-      // DOMPurify
       return DOMPurify.sanitize(html, {
         USE_PROFILES: { html: true },
         FORBID_TAGS: ["style", "script", "iframe"],
@@ -457,7 +450,7 @@ export default {
 
     // 关闭 Popover，清理状态
     cancelCreateInline() {
-      this.blurCreateInput(); // ✅ 先 blur 再关闭
+      this.blurCreateInput();
       this.createName = "";
       this.createSessionPopoverVisible = false;
       this.creatingSession = false;
@@ -637,7 +630,6 @@ export default {
 
               this.scrollToBottom();
             } catch (err) {
-              // eslint-disable-next-line no-console
               console.error("onToken failed:", err);
             }
           },
@@ -668,7 +660,6 @@ export default {
 
               this.scrollToBottom();
             } catch (err) {
-              // eslint-disable-next-line no-console
               console.error("onDone failed:", err);
             }
           }
@@ -1078,56 +1069,43 @@ export default {
 .message-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 13px;
 }
 .message-item {
   width: 100%;
 }
+
+/* ✅ 行容器：左右对齐，宽度 100% */
 .robot-message,
 .user-message {
   display: flex;
-  gap: 10px;
   align-items: flex-start;
   width: 100%;
 }
+.robot-message {
+  justify-content: flex-start; /* AI 靠左 */
+}
 .user-message {
+  justify-content: flex-end;   /* 用户靠右 */
+}
+
+/* ✅ 气泡轨道：最大宽度 95%，内容自适应 */
+.bubble-wrap {
+  display: flex;
+  max-width: 100%;
+}
+.robot-message .bubble-wrap {
+  justify-content: flex-start;
+}
+.user-message .bubble-wrap {
   justify-content: flex-end;
 }
 
-/* 头像：用户蓝紫渐变，AI 绿色渐变 */
-.avatar {
-  font-weight: 900;
-  border-radius: 999px !important;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.85);
-}
-.avatar.user {
-  background: radial-gradient(circle at 30% 0,
-  #dbeafe,
-  #60a5fa 25%,
-  #4f46e5 55%,
-  #1e40af 100%);
-  color: #f9fafb;
-}
-.avatar.assistant {
-  background: radial-gradient(circle at 30% 0,
-  #bbf7d0,
-  #22c55e 40%,
-  #15803d 100%);
-  color: #f9fafb;
-}
-
-/* 动态宽度：限制气泡最大宽度，避免一行超长 */
-.bubble-wrap {
-  display: flex;
-}
-.robot-message .bubble-wrap,
-.user-message .bubble-wrap {
-  max-width: 82%; /* ✅ 调宽一些 */
-}
-
-/* 气泡：圆润 + 小尾巴 */
+/* ✅ 气泡：宽度由文字决定，但不超过 95% 轨道 */
 .message-bubble {
   position: relative;
+  display: inline-block;
+  max-width: 100%;
   padding: 10px 12px;
   font-size: 14px;
   line-height: 1.8;
@@ -1136,7 +1114,7 @@ export default {
   font-family: var(--font-ui);
 }
 
-/* AI 气泡 */
+/* AI 气泡：左侧小尾巴 */
 .robot-bubble {
   background: radial-gradient(circle at 0 0,
   rgba(148, 163, 184, 0.25),
@@ -1156,7 +1134,7 @@ export default {
   transform: rotate(35deg);
 }
 
-/* 用户气泡：改成蓝青主题渐变 */
+/* 用户气泡：蓝青渐变，无尾巴 */
 .user-bubble {
   background: linear-gradient(
       135deg,
@@ -1166,17 +1144,6 @@ export default {
   );
   color: rgba(255, 255, 255, 0.96);
   border-radius: 18px 20px 6px 20px;
-}
-.user-bubble::before {
-  content: "";
-  position: absolute;
-  right: -4px;
-  bottom: 8px;
-  width: 10px;
-  height: 10px;
-  background: inherit;
-  border-bottom-right-radius: 10px;
-  transform: rotate(-35deg);
 }
 
 .loading-row {
