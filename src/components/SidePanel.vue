@@ -85,6 +85,19 @@ export default {
   "JetBrains Mono", "Fira Code", "Source Code Pro", "Cascadia Mono",
   "Roboto Mono", "Ubuntu Mono", "Courier New", monospace;
 
+  /* ✅ 滚动条主题变量（和主聊天区域统一） */
+  --sb-track: rgba(15, 23, 42, 0.90);
+  --sb-thumb-grad: linear-gradient(
+      180deg,
+      rgba(96, 165, 250, 0.45),
+      rgba(96, 165, 250, 0.25)
+  );
+  --sb-thumb-grad-hover: linear-gradient(
+      180deg,
+      rgba(129, 140, 248, 0.95),
+      rgba(59, 130, 246, 0.85)
+  );
+
   height: 100%;
   width: 100%;
   border-radius: var(--card-radius);
@@ -148,10 +161,15 @@ export default {
   color: var(--t-main);
   overflow-y: auto;
 
+  /* ✅ Firefox 滚动条：暗背景 + 蓝色 thumb */
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) var(--sb-track);
+  scrollbar-color: rgba(96, 165, 250, 0.65) var(--sb-track);
 }
-.sp-body::-webkit-scrollbar{ width: 10px; }
+
+/* ✅ WebKit 纵向滚动条（侧边栏整体） */
+.sp-body::-webkit-scrollbar{
+  width: 10px;
+}
 .sp-body::-webkit-scrollbar-track{
   background: var(--sb-track);
   border-radius: 999px;
@@ -160,7 +178,7 @@ export default {
 .sp-body::-webkit-scrollbar-thumb{
   background: var(--sb-thumb-grad);
   border-radius: 999px;
-  border: 2px solid rgba(15, 23, 42, 0.85);
+  border: 2px solid rgba(15, 23, 42, 0.95);
 }
 .sp-body::-webkit-scrollbar-thumb:hover{
   background: var(--sb-thumb-grad-hover);
@@ -227,7 +245,7 @@ export default {
   flex: 0 0 auto;
 }
 
-/* ✅ 重点：日志不换行 + 横向滚动条主题化 + 更好看的代码字体 */
+/* ✅ 日志代码块：不换行 + 横向滚动 + 主题滚动条 */
 .g-body{
   margin-top: 10px;
   padding: 10px 12px;
@@ -239,33 +257,30 @@ export default {
   font-family: var(--code-font);
   font-size: 12px;
   line-height: 1.65;
-  font-variant-ligatures: contextual; /* Fira Code/JetBrains Mono 有连字更舒服 */
+  font-variant-ligatures: contextual;
   letter-spacing: 0.15px;
 
-  /* ❌ 不换行 */
-  white-space: pre;
-
-  /* ✅ 超长横向滚动 */
+  white-space: pre; /* 不换行 */
   overflow-x: auto;
   overflow-y: hidden;
 
-  /* Firefox 滚动条 */
+  /* Firefox 横向滚动条颜色（会同时影响纵向，但这里只开横向） */
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.22) rgba(255,255,255,0.06);
+  scrollbar-color: rgba(96, 165, 250, 0.65) rgba(15, 23, 42, 0.92);
 }
 
-/* WebKit 横向滚动条（也会影响纵向，但这里 g-body 只有横向） */
+/* WebKit 横向滚动条 */
 .g-body::-webkit-scrollbar{
   height: 10px;
 }
 .g-body::-webkit-scrollbar-track{
-  background: rgba(255,255,255,0.06);
+  background: rgba(15, 23, 42, 0.92);
   border-radius: 999px;
 }
 .g-body::-webkit-scrollbar-thumb{
   background: var(--sb-thumb-grad);
   border-radius: 999px;
-  border: 2px solid rgba(15, 23, 42, 0.85);
+  border: 2px solid rgba(15, 23, 42, 0.95);
 }
 .g-body::-webkit-scrollbar-thumb:hover{
   background: var(--sb-thumb-grad-hover);

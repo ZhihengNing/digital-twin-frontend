@@ -1,32 +1,146 @@
 <template>
   <div id="app">
-    <div class="chat-page">
-      <!-- ✅ 用 gutter 代替 gap，避免三列总宽 + gap 溢出 -->
-      <el-row class="full-row" :gutter="12">
-        <el-col :span="leftSpan" class="full-col">
-          <Graph class="full-content" :scene="scene" />
-        </el-col>
+    <div class="root-layout">
+      <!-- ✅ 左侧：数字孪生场景（可收缩） -->
+      <div class="scene-sider" :class="{ collapsed: sceneSiderCollapsed }">
+        <div class="sider-header">
+          <div class="header-title" v-if="!sceneSiderCollapsed">数字孪生场景</div>
 
-        <el-col :span="chatSpan" class="full-col">
-          <Chat
-              :key="chatKey"
-              class="full-content"
-              :sideDot="currentSideDot"
-              @toggle-side="onToggleSide"
-              @tool-event="onToolEvent"
-              @session-change="onSessionChange"
-          />
-        </el-col>
+          <div class="header-actions">
+            <!-- ✅ 展开状态：显示“添加(小 Popover) + 收起” -->
+            <template v-if="!sceneSiderCollapsed">
+              <!-- Popover：紧凑输入框 -->
+              <el-popover
+                  v-model="createScenePopoverVisible"
+                  placement="bottom-end"
+                  trigger="click"
+                  popper-class="ws-dark-popper ws-mini-popper"
+                  :append-to-body="true"
+              >
+                <div class="mini-pop">
+                  <div class="mini-pop-title">添加场景</div>
 
-        <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
-          <SidePanel
-              class="full-content side-panel"
-              :groups="currentSessionLogs"
-              :session-id="activeSessionId"
-              @close="sideOpen = false"
-          />
-        </el-col>
-      </el-row>
+                  <el-input
+                      ref="sceneNameInput"
+                      v-model="newSceneName"
+                      placeholder="输入场景名称"
+                      maxlength="64"
+                      clearable
+                      class="ws-dark-input ws-mini-input"
+                      @keyup.enter.native="submitCreateScene"
+                  />
+
+                  <div class="mini-pop-actions">
+                    <button class="mini-link" @click="closeCreatePopover">取消</button>
+                    <el-button
+                        size="mini"
+                        type="primary"
+                        class="ws-btn-primary"
+                        :loading="creatingScene"
+                        @click="submitCreateScene"
+                    >
+                      创建
+                    </el-button>
+                  </div>
+                </div>
+
+                <!-- reference：加号按钮 -->
+                <el-tooltip slot="reference" content="添加场景" placement="right">
+                  <button class="icon-btn" @click="onClickAddBtn">
+                    <i class="el-icon-plus"></i>
+                  </button>
+                </el-tooltip>
+              </el-popover>
+
+              <el-tooltip content="收起" placement="right">
+                <button class="icon-btn" @click="sceneSiderCollapsed = true">
+                  <i class="el-icon-s-fold"></i>
+                </button>
+              </el-tooltip>
+            </template>
+
+            <!-- ✅ 收起状态：只显示“展开” -->
+            <template v-else>
+              <el-tooltip content="展开" placement="right">
+                <button class="icon-btn" @click="sceneSiderCollapsed = false">
+                  <i class="el-icon-s-unfold"></i>
+                </button>
+              </el-tooltip>
+            </template>
+          </div>
+        </div>
+
+        <div class="sider-body">
+          <div v-if="sceneLoading" class="sider-loading">
+            <i class="el-icon-loading"></i>
+            <span v-if="!sceneSiderCollapsed">加载中…</span>
+          </div>
+
+          <div v-else class="scene-list">
+            <!-- 展开：仅显示场景名字 -->
+            <template v-if="!sceneSiderCollapsed">
+              <div
+                  v-for="s in normalizedScenes"
+                  :key="s.sceneId"
+                  class="scene-item"
+                  :class="{ active: s.sceneId === scene }"
+                  @click="onSelectScene(s.sceneId)"
+              >
+                <span class="scene-name">{{ s.name || s.sceneId }}</span>
+              </div>
+
+              <div v-if="normalizedScenes.length === 0" class="empty">暂无场景</div>
+            </template>
+
+            <!-- 收缩：仅显示小点 + tooltip -->
+            <template v-else>
+              <el-tooltip
+                  v-for="s in normalizedScenes"
+                  :key="s.sceneId"
+                  :content="s.name || s.sceneId"
+                  placement="right"
+              >
+                <div
+                    class="mini-item"
+                    :class="{ active: s.sceneId === scene }"
+                    @click="onSelectScene(s.sceneId)"
+                />
+              </el-tooltip>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ✅ 右侧：原来的工作台（三列） -->
+      <div class="workbench">
+        <div class="chat-page">
+          <el-row class="full-row" :gutter="12">
+            <el-col :span="leftSpan" class="full-col">
+              <Graph class="full-content" :scene="scene" />
+            </el-col>
+
+            <el-col :span="chatSpan" class="full-col">
+              <Chat
+                  :key="chatKey"
+                  class="full-content"
+                  :sideDot="currentSideDot"
+                  @toggle-side="onToggleSide"
+                  @tool-event="onToolEvent"
+                  @session-change="onSessionChange"
+              />
+            </el-col>
+
+            <el-col v-if="sideOpen" :span="sideSpan" class="full-col">
+              <SidePanel
+                  class="full-content side-panel"
+                  :groups="currentSessionLogs"
+                  :session-id="activeSessionId"
+                  @close="sideOpen = false"
+              />
+            </el-col>
+          </el-row>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -36,61 +150,56 @@ import Chat from "@/components/Chat.vue";
 import Graph from "@/components/Graph.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import { getHistoryLog } from "@/api/chat";
+import { listScenes, createScene } from "@/api/scene";
 
 export default {
   name: "App",
   components: { Graph, Chat, SidePanel },
+
   data() {
     return {
       scene: "test_scene",
+
+      // 左侧场景栏
+      sceneSiderCollapsed: false,
+      sceneLoading: false,
+      scenes: [],
+
+      // 添加场景：Popover
+      createScenePopoverVisible: false,
+      newSceneName: "",
+      creatingScene: false,
+
+      // 右侧 SidePanel
       sideOpen: false,
 
-      // 当前选中会话
+      // 当前会话
       activeSessionId: null,
 
-      // 控制 Chat 组件重建（按需）
+      // 控制 Chat 重建
       chatKey: 1,
 
-      /**
-       * ✅ 右侧“框框”数据结构（每次 query 一个框）
-       * logGroupsBySession: { [sessionId]: Array<{id, ts, sessionId, text, source}> }
-       */
       logGroupsBySession: {},
-
-      /**
-       * ✅ 未读红点（每个 session）
-       * unreadBySession: { [sessionId]: boolean }
-       */
       unreadBySession: {}
     };
   },
 
-  created() {
-    // ✅ 确保子组件 mounted 前 localStorage 已写好
-    this.scene = "test_scene";
-    window.localStorage.setItem("scene", this.scene);
-
-    const saved = window.localStorage.getItem("sessionId");
-    this.activeSessionId = saved && String(saved).trim() ? String(saved).trim() : null;
-
-    if (this.activeSessionId) {
-      if (!this.logGroupsBySession[this.activeSessionId]) {
-        this.$set(this.logGroupsBySession, this.activeSessionId, []);
-      }
-      this.$set(this.unreadBySession, this.activeSessionId, false);
-
-      // ✅ 启动时有 session 也拉一次
-      this.loadHistoryLogsForActiveSession().catch(() => {});
-    }
-  },
-
   computed: {
+    normalizedScenes() {
+      return (this.scenes || [])
+          .map((x) => {
+            if (typeof x === "string") return { sceneId: x, name: "" };
+            if (!x) return null;
+            return { sceneId: x.sceneId, name: x.name || "" };
+          })
+          .filter((s) => s && s.sceneId);
+    },
+
     currentSessionLogs() {
       const sid = this.activeSessionId;
       return this.logGroupsBySession[sid] || [];
     },
 
-    // ✅ 给 Chat 的红点：当前 session 是否有未读
     currentSideDot() {
       const sid = this.activeSessionId;
       return !!(sid && this.unreadBySession[sid]);
@@ -107,11 +216,133 @@ export default {
     }
   },
 
+  async created() {
+    // session 恢复
+    const saved = window.localStorage.getItem("sessionId");
+    this.activeSessionId = saved && String(saved).trim() ? String(saved).trim() : null;
+
+    if (this.activeSessionId) {
+      if (!this.logGroupsBySession[this.activeSessionId]) {
+        this.$set(this.logGroupsBySession, this.activeSessionId, []);
+      }
+      this.$set(this.unreadBySession, this.activeSessionId, false);
+      this.loadHistoryLogsForActiveSession().catch(() => {});
+    }
+
+    // scene 恢复
+    const savedScene = window.localStorage.getItem("scene");
+    if (savedScene && String(savedScene).trim()) {
+      this.scene = String(savedScene).trim();
+    }
+
+    await this.loadScenesAndInit();
+  },
+
   methods: {
+    async loadScenesAndInit() {
+      this.sceneLoading = true;
+      try {
+        const res = await listScenes();
+        const list = res?.data?.scenes || res?.data || res || [];
+        this.scenes = Array.isArray(list) ? list : [];
+
+        const scenes = this.normalizedScenes;
+        if (!scenes.length) {
+          window.localStorage.setItem("scene", this.scene);
+          return;
+        }
+
+        const exists = scenes.some((s) => s.sceneId === this.scene);
+        this.scene = exists ? this.scene : scenes[0].sceneId;
+        window.localStorage.setItem("scene", this.scene);
+      } catch (e) {
+        window.localStorage.setItem("scene", this.scene);
+      } finally {
+        this.sceneLoading = false;
+      }
+    },
+
+    onSelectScene(sceneId) {
+      const sid = sceneId && String(sceneId).trim() ? String(sceneId).trim() : null;
+      if (!sid) return;
+      if (sid === this.scene) return;
+
+      this.scene = sid;
+      window.localStorage.setItem("scene", this.scene);
+
+      // 切场景重建 Chat，避免上下文漂移
+      this.chatKey += 1;
+    },
+
+    // ===== 添加场景：Popover 逻辑 =====
+    onClickAddBtn() {
+      // 点击 reference 也会触发 popover 打开，这里用于“打开后聚焦”
+      this.$nextTick(() => {
+        const inp = this.$refs.sceneNameInput;
+        if (inp && typeof inp.focus === "function") inp.focus();
+      });
+    },
+
+    closeCreatePopover() {
+      this.createScenePopoverVisible = false;
+      this.newSceneName = "";
+    },
+
+    async submitCreateScene() {
+      const name = this.newSceneName && String(this.newSceneName).trim();
+      if (!name) {
+        this.$message.warning("请输入场景名称");
+        return;
+      }
+      if (name.length > 64) {
+        this.$message.warning("场景名称过长（最多 64 字符）");
+        return;
+      }
+
+      // ✅ 新增：与现有场景重名校验（不区分大小写）
+      const exists = this.normalizedScenes.some((s) => {
+        const sid = String(s.sceneId || "").trim().toLowerCase();
+        const sname = String(s.name || "").trim().toLowerCase();
+        const input = name.toLowerCase();
+        return sid === input || sname === input;
+      });
+
+      if (exists) {
+        this.$message.warning(`场景「${name}」已存在`);
+        return;
+      }
+
+      this.creatingScene = true;
+      try {
+        const response=await createScene(name);
+        if(response.code!==200){
+          this.$message.error("创建失败");
+          return;
+        }
+
+        this.$message.success("创建成功");
+
+        // 关闭 popover
+        this.createScenePopoverVisible = false;
+        this.newSceneName = "";
+
+        // 重新拉取并选中
+        await this.loadScenesAndInit();
+
+        // 尝试选中新场景
+        const found = this.normalizedScenes.find(
+            (s) => s.sceneId === name || (s.name && s.name === name)
+        );
+        if (found) this.onSelectScene(found.sceneId);
+      } catch (e) {
+        this.$message.error("创建失败");
+      } finally {
+        this.creatingScene = false;
+      }
+    },
+
     onToggleSide() {
       this.sideOpen = !this.sideOpen;
-
-      // ✅ 打开侧边栏 => 清掉当前 session 未读红点
       if (this.sideOpen && this.activeSessionId) {
         this.$set(this.unreadBySession, this.activeSessionId, false);
       }
@@ -122,12 +353,10 @@ export default {
           this.activeSessionId && String(this.activeSessionId).trim()
               ? String(this.activeSessionId).trim()
               : null;
-
       if (!sid) return;
 
       if (!this.logGroupsBySession[sid]) this.$set(this.logGroupsBySession, sid, []);
 
-      // ✅ 拉取 historyLog：后端返回 List<String>
       const res = await getHistoryLog();
       const list = res?.data || res || [];
       const arr = Array.isArray(list) ? list : [];
@@ -142,10 +371,7 @@ export default {
             source: "history"
           }));
 
-      // ✅ 切换 session 时：以 history 覆盖
       this.$set(this.logGroupsBySession, sid, groupsFromHistory);
-
-      // ✅ 拉完历史 => 当前 session 未读清零
       this.$set(this.unreadBySession, sid, false);
     },
 
@@ -153,7 +379,6 @@ export default {
       const sid = sessionId && String(sessionId).trim() ? String(sessionId).trim() : null;
       this.activeSessionId = sid;
 
-      // localStorage 同步
       if (sid) window.localStorage.setItem("sessionId", sid);
       else window.localStorage.removeItem("sessionId");
 
@@ -164,25 +389,17 @@ export default {
         this.$set(this.unreadBySession, sid, false);
       }
 
-      // ✅ 切 session 就拉历史
       if (sid) {
         await this.loadHistoryLogsForActiveSession();
       }
 
-      // ✅ 如果侧边栏开着，切会话后也算“已读”
       if (this.sideOpen && sid) {
         this.$set(this.unreadBySession, sid, false);
       }
     },
 
-    /**
-     * ✅ 接收 Chat.vue 的日志流事件（不打开侧边栏也会写入）
-     * 约定：evt = { type: "tool.log" | "error" | ... , ts, sessionId, logGroupId, data:{message} }
-     */
     onToolEvent(evt) {
       if (!evt) return;
-
-      // 只处理日志事件
       if (evt.type !== "tool.log") return;
 
       const sid = evt.sessionId || this.activeSessionId || "default";
@@ -194,24 +411,14 @@ export default {
 
       const arr = this.logGroupsBySession[sid];
 
-      // 找到同一个 groupId 的框（一次 query 一个 groupId）
       let g = arr.find((x) => String(x.id) === groupId);
-
       if (!g) {
-        g = {
-          id: groupId,
-          ts: evt.ts || Date.now(),
-          sessionId: sid,
-          text: "",
-          source: "stream"
-        };
+        g = { id: groupId, ts: evt.ts || Date.now(), sessionId: sid, text: "", source: "stream" };
         arr.push(g);
       }
 
-      // 追加文本
       g.text += msg + "\n";
 
-      // ✅ 不打开侧边栏也标记未读红点（仅当前 session）
       if (!this.sideOpen && sid === this.activeSessionId) {
         this.$set(this.unreadBySession, sid, true);
       }
@@ -234,9 +441,8 @@ body {
   text-align: left;
 }
 
-/* ========= Design Tokens (全局主题变量) ========= */
+/* ========= Design Tokens (保持你原来的) ========= */
 :root {
-  --ws-bg: #0f172a;
   --ws-workbench-grad: radial-gradient(
       1200px 600px at 20% 10%,
       rgba(96, 165, 250, 0.10) 0%,
@@ -248,108 +454,339 @@ body {
       rgba(139, 92, 246, 0) 55%
   ),
   linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
-
-  --card-bg-grad: linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.98));
-  --card-border: 1px solid rgba(255, 255, 255, 0.08);
-  --card-radius: 18px;
-  --card-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
-
-  --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-  --divider: 1px solid rgba(255, 255, 255, 0.08);
-
-  --t-strong: rgba(255, 255, 255, 0.92);
-  --t-main: rgba(255, 255, 255, 0.86);
-  --t-sub: rgba(255, 255, 255, 0.60);
-  --t-muted: rgba(255, 255, 255, 0.45);
-
-  --accent: rgba(96, 165, 250, 0.95);
-  --accent-soft: rgba(96, 165, 250, 0.18);
-  --accent-border: rgba(96, 165, 250, 0.25);
-
-  --accent2: rgba(139, 92, 246, 0.95);
-
-  --ctl-bg: rgba(255, 255, 255, 0.06);
-  --ctl-bg-hover: rgba(255, 255, 255, 0.10);
-  --ctl-border: 1px solid rgba(255, 255, 255, 0.10);
-  --ctl-radius: 12px;
-
-  --input-bg: rgba(255, 255, 255, 0.06);
-  --input-border: 1px solid rgba(255, 255, 255, 0.10);
-  --focus-border: rgba(96, 165, 250, 0.70);
-  --focus-ring: 0 0 0 2px rgba(96, 165, 250, 0.18);
-
-  --bubble-border: 1px solid rgba(255, 255, 255, 0.08);
-  --bubble-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
-  --bubble-radius: 14px;
-  --bubble-ai: rgba(255, 255, 255, 0.06);
-  --bubble-user-grad: linear-gradient(
-      180deg,
-      rgba(96, 165, 250, 0.28) 0%,
-      rgba(96, 165, 250, 0.16) 100%
-  );
-
-  --sb-track: rgba(255, 255, 255, 0.05);
-  --sb-thumb-grad: linear-gradient(180deg, rgba(96, 165, 250, 0.42), rgba(255, 255, 255, 0.18));
-  --sb-thumb-grad-hover: linear-gradient(
-      180deg,
-      rgba(96, 165, 250, 0.60),
-      rgba(255, 255, 255, 0.22)
-  );
 }
 
-/* ========= Workbench ========= */
+/* ✅ 外层布局 */
+.root-layout {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ===== Sidebar：数字孪生场景（无圆角，深色蓝紫主题） ===== */
+.scene-sider {
+  width: 200px;
+  min-width: 200px;
+  max-width: 200px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  background:
+      radial-gradient(900px 520px at 20% 10%, rgba(96,165,250,0.12), rgba(96,165,250,0) 60%),
+      radial-gradient(900px 520px at 85% 15%, rgba(139,92,246,0.10), rgba(139,92,246,0) 58%),
+      linear-gradient(180deg, rgba(10,16,30,0.98), rgba(9,14,26,0.99));
+
+  border-right: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(10px);
+  box-shadow: 14px 0 46px rgba(0,0,0,0.38);
+}
+
+.scene-sider.collapsed {
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
+}
+
+.sider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.header-title {
+  color: rgba(255,255,255,0.92);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 顶部 icon 按钮 */
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.90);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.icon-btn:hover {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.14);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(0,0,0,0.30);
+}
+
+.sider-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.sider-body::-webkit-scrollbar { width: 8px; }
+.sider-body::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); }
+.sider-body::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(96,165,250,0.40), rgba(255,255,255,0.14));
+  border-radius: 999px;
+}
+.sider-body::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(96,165,250,0.60), rgba(255,255,255,0.18));
+}
+
+.sider-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: rgba(255,255,255,0.72);
+}
+
+.scene-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scene-item {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.scene-item:hover {
+  background: rgba(255,255,255,0.055);
+  border-color: rgba(255,255,255,0.10);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(0,0,0,0.25);
+}
+.scene-item.active {
+  background: linear-gradient(180deg, rgba(96,165,250,0.16), rgba(139,92,246,0.10));
+  border-color: rgba(96,165,250,0.24);
+  box-shadow: 0 16px 34px rgba(0,0,0,0.28);
+}
+.scene-item.active::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(96,165,250,0.95), rgba(139,92,246,0.85));
+  box-shadow: 0 0 0 2px rgba(96,165,250,0.12);
+}
+.scene-name {
+  display: block;
+  padding-left: 8px;
+  color: rgba(255,255,255,0.90);
+  font-weight: 800;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 10px;
+  color: rgba(255,255,255,0.55);
+  font-size: 12px;
+}
+
+.mini-item {
+  height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  position: relative;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.mini-item:hover {
+  background: rgba(255,255,255,0.055);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(0,0,0,0.22);
+}
+.mini-item::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255,255,255,0.22);
+}
+.mini-item.active {
+  background: rgba(96,165,250,0.12);
+  border-color: rgba(96,165,250,0.22);
+}
+.mini-item.active::after {
+  background: linear-gradient(180deg, rgba(96,165,250,0.95), rgba(139,92,246,0.85));
+  box-shadow: 0 0 0 2px rgba(96,165,250,0.12);
+}
+
+/* ✅ 右侧工作台 */
+.workbench {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .chat-page {
   height: 100%;
   width: 100%;
   overflow: hidden;
   background: var(--ws-workbench-grad);
-  color: var(--t-main);
+  color: rgba(255, 255, 255, 0.86);
 }
 
-/* ✅ 这里不要 gap，使用 el-row gutter */
 .full-row {
   height: 100%;
   width: 100%;
   margin: 0 !important;
   padding: 12px;
   box-sizing: border-box;
-
-  /* 你要保持 flex 也可以，但别再配 gap */
   display: flex;
   min-width: 0;
 }
-
 .full-col {
   height: 100%;
   min-height: 0;
   display: flex;
   box-sizing: border-box;
-
-  /* ✅ 关键：防止内容把列撑爆导致越界 */
   min-width: 0;
 }
-
-/* 让三块内容都能正确收缩 */
 .full-content {
   flex: 1;
   height: 100%;
   min-height: 0;
-
-  /* ✅ 关键：内部溢出走滚动/截断，不撑爆外层 */
   min-width: 0;
   overflow: hidden;
 }
 
-/* ✅ SidePanel 内容常出现长 JSON / 日志，强制可换行，避免撑爆 */
+/* ✅ SidePanel 内容常出现长 JSON / 日志，强制可换行 */
 .side-panel,
 .side-panel * {
   max-width: 100%;
 }
-
 .side-panel pre,
 .side-panel code {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+/* ====== Popover Dark Theme ====== */
+.ws-dark-popper {
+  background:
+      radial-gradient(900px 520px at 20% 10%, rgba(96,165,250,0.10), rgba(96,165,250,0) 60%),
+      radial-gradient(900px 520px at 85% 15%, rgba(139,92,246,0.08), rgba(139,92,246,0) 58%),
+      linear-gradient(180deg, rgba(10,16,30,0.98), rgba(9,14,26,0.99)) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  box-shadow: 0 22px 70px rgba(0,0,0,0.55) !important;
+  color: rgba(255,255,255,0.86) !important;
+  padding: 10px !important; /* Element 默认 padding 偏大 */
+}
+
+/* popover 箭头也变暗 */
+.ws-dark-popper[x-placement^="bottom"] .popper__arrow::after,
+.ws-dark-popper[x-placement^="top"] .popper__arrow::after,
+.ws-dark-popper[x-placement^="left"] .popper__arrow::after,
+.ws-dark-popper[x-placement^="right"] .popper__arrow::after {
+  border-bottom-color: rgba(10,16,30,0.98) !important;
+  border-top-color: rgba(10,16,30,0.98) !important;
+  border-left-color: rgba(10,16,30,0.98) !important;
+  border-right-color: rgba(10,16,30,0.98) !important;
+}
+
+.ws-mini-popper {
+  min-width: 260px;
+  max-width: 280px;
+}
+
+.mini-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mini-pop-title {
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.92);
+  letter-spacing: 0.2px;
+}
+
+.ws-dark-input .el-input__inner {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  color: rgba(255,255,255,0.90) !important;
+}
+.ws-dark-input .el-input__inner::placeholder {
+  color: rgba(255,255,255,0.45);
+}
+.ws-dark-input .el-input__inner:focus {
+  border-color: rgba(96,165,250,0.55) !important;
+  box-shadow: 0 0 0 2px rgba(96,165,250,0.18);
+}
+.ws-mini-input .el-input__inner {
+  height: 32px !important;
+  line-height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+}
+
+.mini-pop-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+.mini-link {
+  border: 0;
+  background: transparent;
+  padding: 6px 6px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.68);
+}
+.mini-link:hover {
+  color: rgba(255,255,255,0.90);
+}
+
+.ws-btn-primary.el-button--primary {
+  background: rgba(96,165,250,0.22);
+  border-color: rgba(96,165,250,0.35);
+  color: rgba(255,255,255,0.92);
+}
+.ws-btn-primary.el-button--primary:hover {
+  background: rgba(96,165,250,0.30);
+  border-color: rgba(96,165,250,0.45);
 }
 </style>

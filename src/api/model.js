@@ -14,3 +14,12 @@ export const getModelById = async (id) => {
     }
     return null;
 };
+
+export async function getAllModels() {
+    try {
+        const response = await apiClient.post("/digitaltwin/getAllModels");
+        return response.data;
+    } catch (error) {
+        console.error('Error during get Inversion Result by id:', error);
+    }
+}
