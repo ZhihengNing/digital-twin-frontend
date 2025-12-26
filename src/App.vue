@@ -315,52 +315,32 @@ export default {
         this.$message.warning("请输入场景名称");
         return;
       }
+
+      // 🔒 只允许字母 + 数字
+      if (!/^[A-Za-z0-9]+$/.test(name)) {
+        this.$message.warning("场景名称仅支持字母和数字");
+        return;
+      }
+
       if (name.length > 64) {
         this.$message.warning("场景名称过长（最多 64 字符）");
         return;
       }
 
-      // ✅ 与现有场景重名校验（不区分大小写）
+      // 🆚 重名校验（保持原逻辑）
       const exists = this.normalizedScenes.some((s) => {
         const sid = String(s.sceneId || "").trim().toLowerCase();
         const sname = String(s.name || "").trim().toLowerCase();
-        const input = name.toLowerCase();
-        return sid === input || sname === input;
+        return sid === name.toLowerCase() || sname === name.toLowerCase();
       });
-
       if (exists) {
         this.$message.warning(`场景「${name}」已存在`);
         return;
       }
 
       this.creatingScene = true;
-      try {
-        const response = await createScene(name);
-        if (response.code !== 200) {
-          this.$message.error("创建失败");
-          return;
-        }
-
-        this.$message.success("创建成功");
-
-        // 关闭 popover
-        this.createScenePopoverVisible = false;
-        this.newSceneName = "";
-
-        // 重新拉取并选中
-        await this.loadScenesAndInit();
-
-        // 尝试选中新场景
-        const found = this.normalizedScenes.find(
-            (s) => s.sceneId === name || (s.name && s.name === name)
-        );
-        if (found) this.onSelectScene(found.sceneId);
-      } catch (e) {
-        this.$message.error("创建失败");
-      } finally {
-        this.creatingScene = false;
-      }
-    },
+    ...
+    }
 
     // ===== 场景更多操作：当前只有删除 =====
     handleSceneMoreCommand(command) {
