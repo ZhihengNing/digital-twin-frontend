@@ -486,6 +486,7 @@ export default {
       this.creatingSession = false;
 
       this.$emit("session-change", name);
+      this.fetchChatHistory();
     },
 
     async handleDeleteSession() {
