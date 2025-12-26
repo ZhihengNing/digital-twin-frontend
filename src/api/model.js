@@ -2,8 +2,9 @@ import {apiClient} from "@/api/apiClient";
 
 
 
-export const getModelById = async (id) => {
+export const getModelById = async (scene,id) => {
     const data={
+        "scene":scene,
         "modelId":id
     }
     try {
@@ -15,9 +16,13 @@ export const getModelById = async (id) => {
     return null;
 };
 
-export async function getAllModels() {
+
+export async function getModelsByScene(scene){
+    const data={
+        "scene":scene
+    }
     try {
-        const response = await apiClient.post("/digitaltwin/getAllModels");
+        const response = await apiClient.post("/digitaltwin/getModelByScene",data);
         return response.data;
     } catch (error) {
         console.error('Error during get Inversion Result by id:', error);

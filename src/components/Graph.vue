@@ -6,22 +6,87 @@
         <span class="rg-dot"></span>
         <span class="rg-title-text">数字孪生场景 {{ scene }}</span>
       </div>
+
       <div class="rg-actions">
+        <!-- 本体按钮：和自适应/重排完全同尺寸，只额外加一个激活态样式类 -->
+        <button
+            class="rg-btn rg-ont-btn"
+            :class="{ 'rg-ont-btn-active': ontologyMode }"
+            @click="toggleOntology"
+        >
+          本体
+        </button>
+
         <button class="rg-btn" @click="fitView">自适应</button>
         <button class="rg-btn" @click="reLayout">重排</button>
       </div>
     </div>
 
-    <!-- 图表容器 -->
-    <div ref="chart" class="rg-chart"></div>
+    <!-- 本体模式：本体卡片列表（背景高度与图谱区域一致，卡片高度恒定） -->
+    <div v-if="ontologyMode" class="rg-ontology">
+      <div class="rg-ontology-head">
+        <span class="rg-ontology-title">场景本体列表</span>
+        <span class="rg-ontology-hint" v-if="ontologyLoading">
+          加载中…
+        </span>
+        <span class="rg-ontology-hint" v-else>
+          共 {{ ontologyCards.length }} 个模型
+        </span>
+      </div>
 
-    <!-- 右侧 Drawer -->
+      <div
+          class="rg-ontology-empty"
+          v-if="!ontologyLoading && !ontologyCards.length"
+      >
+        当前场景暂无本体模型
+      </div>
+
+      <!-- 背景区域填满 header 下方高度，卡片自身高度恒定 -->
+      <div v-else class="rg-ontology-grid">
+        <div
+            v-for="card in ontologyCards"
+            :key="card.key"
+            class="rg-ontology-card"
+            @click="onClickOntologyCard(card)"
+        >
+          <div class="rg-ontology-card-head">
+            <div class="rg-ontology-avatar">
+              {{ card.avatarText }}
+            </div>
+            <div class="rg-ontology-meta">
+              <div class="rg-ontology-name" :title="card.modelId">
+                {{ card.displayName }}
+              </div>
+              <div class="rg-ontology-sub">
+                Model ID: {{ card.shortModelId }}
+              </div>
+            </div>
+          </div>
+
+          <div class="rg-ontology-body">
+            <div class="rg-ontology-label">
+              点击查看模型 JSON
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图表容器：本体模式下隐藏 -->
+    <div
+        ref="chart"
+        class="rg-chart"
+        v-show="!ontologyMode"
+    ></div>
+
+    <!-- 右侧 Drawer：只有非本体模式 & drawerVisible 才存在 -->
     <el-drawer
+        v-if="!ontologyMode && drawerVisible"
         :visible.sync="drawerVisible"
         :with-header="false"
         :size="drawerSize"
         custom-class="rg-drawer"
-        :append-to-body="true"
+        :append-to-body="false"
     >
       <div class="rg-drawer-head">
         <div class="rg-drawer-title">
@@ -34,7 +99,6 @@
             </div>
 
             <div class="rg-sub">
-              <!-- 只有真的有命名的分类才显示，不会再有“默认” -->
               <span
                   class="rg-pill"
                   v-if="selectedNode && selectedNode.category != null && categoryName"
@@ -104,16 +168,40 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 模型 JSON 弹框 -->
+    <el-dialog
+        :visible.sync="modelDialogVisible"
+        width="720px"
+        custom-class="rg-model-dialog"
+        :close-on-click-modal="false"
+        :append-to-body="true"
+    >
+      <div slot="title" class="rg-model-dialog-title">
+        模型 JSON
+        <span class="rg-model-dialog-sub" v-if="currentModelId">
+          {{ currentModelId }}
+        </span>
+      </div>
+
+      <div class="rg-model-dialog-body">
+        <div v-if="modelDialogLoading" class="rg-json-loading">
+          <el-skeleton :rows="8" animated />
+        </div>
+        <pre v-else class="rg-json-view rg-json-view-dialog">
+{{ modelDialogJson }}
+        </pre>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import * as echarts from "echarts";
 
-// 根据你项目路径调整
 import { getAllGraph } from "@/api/graph";
 import { getInstance } from "@/api/instance";
-import { getModelById } from "@/api/model";
+import { getModelById, getModelsByScene } from "@/api/model";
 
 export default {
   name: "RelationGraph",
@@ -143,6 +231,17 @@ export default {
 
       graphLoading: false,
 
+      // 本体模式 & 本体数据
+      ontologyMode: false,
+      ontologyLoading: false,
+      ontologyModelIds: [],
+
+      // 模型弹框
+      modelDialogVisible: false,
+      modelDialogLoading: false,
+      modelDialogData: null,
+      currentModelId: "",
+
       _reqToken: 0
     };
   },
@@ -156,7 +255,7 @@ export default {
     bottomJsonText() {
       return this.bottomData ? this.pretty(this.bottomData) : "{}";
     },
-    // 分类：只在 categories 有名字的情况下才返回
+    // 分类名称
     categoryName() {
       if (!this.selectedNode) return "";
       if (!this.categories || !this.categories.length) return "";
@@ -164,6 +263,36 @@ export default {
       const c = this.categories[idx];
       if (!c || !c.name) return "";
       return String(c.name);
+    },
+    // 弹框里的 JSON 文本
+    modelDialogJson() {
+      return this.modelDialogData ? this.pretty(this.modelDialogData) : "{}";
+    },
+    // 本体卡片数据
+    ontologyCards() {
+      return (this.ontologyModelIds || []).map((m, idx) => {
+        const modelId = String(m);
+        const shortModelId =
+            modelId.length > 40 ? modelId.slice(0, 37) + "..." : modelId;
+
+        let displayName = modelId;
+        const parts = modelId.split(";");
+        if (parts.length > 1) {
+          displayName = parts[0];
+        }
+        const nameSegments = displayName.split(":");
+        displayName = nameSegments[nameSegments.length - 1] || modelId;
+
+        const avatarText = displayName.trim().charAt(0).toUpperCase() || "M";
+
+        return {
+          key: `model-${idx}`,
+          modelId,
+          displayName,
+          shortModelId,
+          avatarText
+        };
+      });
     }
   },
   async mounted() {
@@ -179,6 +308,9 @@ export default {
     async scene() {
       await this.loadAllGraph(true);
       this.render(true);
+      if (this.ontologyMode) {
+        this.loadOntologyModels();
+      }
     }
   },
   methods: {
@@ -193,7 +325,67 @@ export default {
       }
     },
 
-    // ✅ 上面按钮调用这个：复制“实例 JSON”
+    /* ==================== 本体模式相关 ==================== */
+    async toggleOntology() {
+      const to = !this.ontologyMode;
+      this.ontologyMode = to;
+
+      if (to) {
+        // 进入本体模式：关闭 Drawer + 加载本体列表
+        this.drawerVisible = false;
+        await this.loadOntologyModels();
+      } else {
+        // 退出本体模式：重新计算图谱尺寸
+        this.$nextTick(() => {
+          if (this.chart) this.chart.resize();
+        });
+      }
+    },
+
+    // 加载场景下所有模型 ID
+    async loadOntologyModels() {
+      this.ontologyLoading = true;
+      this.ontologyModelIds = [];
+      try {
+        const res = await getModelsByScene(this.scene);
+        if (res && res.code === 200 && res.data && Array.isArray(res.data.modelIds)) {
+          this.ontologyModelIds = res.data.modelIds;
+        } else {
+          this.ontologyModelIds = [];
+        }
+      } catch (e) {
+        this.ontologyModelIds = [];
+        this.$message && this.$message.error("本体列表加载失败");
+      } finally {
+        this.ontologyLoading = false;
+      }
+    },
+
+    // 点击本体卡片：根据 modelId 拉取模型 JSON 并弹框展示
+    async onClickOntologyCard(card) {
+      if (!card || !card.modelId) return;
+      this.currentModelId = card.modelId;
+      this.modelDialogVisible = true;
+      this.modelDialogLoading = true;
+      this.modelDialogData = null;
+
+      try {
+        const res = await getModelById(this.scene, card.modelId);
+        if (res && res.code === 200 && res.data) {
+          this.modelDialogData = res.data.model || res.data;
+        } else {
+          this.modelDialogData = null;
+          this.$message && this.$message.warning("未获取到模型数据");
+        }
+      } catch (e) {
+        this.modelDialogData = null;
+        this.$message && this.$message.error("模型详情加载失败");
+      } finally {
+        this.modelDialogLoading = false;
+      }
+    },
+
+    /* ==================== 复制逻辑 ==================== */
     async copyJsonTop() {
       if (!this.topData) {
         this.$message && this.$message.warning("没有可复制的实例数据");
@@ -202,7 +394,6 @@ export default {
       await this.safeCopy(this.topJsonText);
     },
 
-    // ✅ 复制“模型 JSON”
     async copyJsonBottom() {
       if (!this.bottomData) {
         this.$message && this.$message.warning("没有可复制的模型数据");
@@ -211,11 +402,9 @@ export default {
       await this.safeCopy(this.bottomJsonText);
     },
 
-    // ✅ 通用安全复制逻辑：优先 Clipboard API，失败回退 textarea + execCommand
     async safeCopy(text) {
       const str = String(text || "");
 
-      // 优先使用 navigator.clipboard
       try {
         if (
             typeof navigator !== "undefined" &&
@@ -230,7 +419,6 @@ export default {
         console.warn("navigator.clipboard 复制失败，尝试降级方案:", err);
       }
 
-      // 降级方案：textarea + execCommand
       try {
         const ta = document.createElement("textarea");
         ta.value = str;
@@ -256,6 +444,7 @@ export default {
       }
     },
 
+    /* ==================== 图谱加载逻辑 ==================== */
     async loadAllGraph(force = false) {
       if (!force && (this.nodes.length || this.relations.length)) return;
 
@@ -263,7 +452,8 @@ export default {
       try {
         const data = await getAllGraph(this.scene);
 
-        const hasNodes = data && Array.isArray(data.nodes) && data.nodes.length > 0;
+        const hasNodes =
+            data && Array.isArray(data.nodes) && data.nodes.length > 0;
 
         this.nodes = hasNodes ? data.nodes : [];
         this.relations =
@@ -271,7 +461,6 @@ export default {
                 ? data.relations || data.links
                 : [];
 
-        // ✅ 只有在有节点的情况下才使用 categories；否则清空，避免“默认分类”
         if (hasNodes && data.categories && data.categories.length) {
           this.categories = data.categories;
         } else {
@@ -292,6 +481,9 @@ export default {
       this.render(true);
 
       this.chart.on("click", (params) => {
+        // 本体模式不弹 Drawer
+        if (this.ontologyMode) return;
+
         if (params && params.dataType === "node") {
           this.selectedNode =
               params.data && params.data.__rawNode
@@ -321,7 +513,7 @@ export default {
       try {
         const [insRes, modelRes] = await Promise.all([
           getInstance(this.scene, category, name),
-          getModelById(category)
+          getModelById(this.scene, category)
         ]);
 
         if (insRes && insRes.code === 200) {
@@ -534,7 +726,6 @@ export default {
   gap: 10px;
 }
 
-/* 标题文字 */
 .rg-title-text {
   color: rgba(248, 250, 252, 0.98);
   font-weight: 900;
@@ -553,10 +744,11 @@ export default {
 
 .rg-actions {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-/* 按钮 */
+/* 通用按钮 */
 .rg-btn,
 .rg-mini-btn {
   height: 32px;
@@ -587,9 +779,150 @@ export default {
   transform: none;
 }
 
+/* 本体按钮：不修改 height / padding，保证和 .rg-btn 一致 */
+.rg-ont-btn {
+  /* 这里故意不写 height / padding，只复用 .rg-btn，保证尺寸完全一致 */
+  font-size: 12px; /* 字号可以略小一点，不影响按钮信息尺寸 */
+}
+.rg-ont-btn-active {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border-color: rgba(129, 140, 248, 1);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.6);
+}
+
 .rg-chart {
   flex: 1;
   min-height: 0;
+}
+
+/* 本体区域背景：和图谱一样，铺满 header 以下所有高度 */
+.rg-ontology {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 14px 10px 14px;
+  background: transparent; /* 露出 rg-wrap 的渐变背景 */
+}
+
+.rg-ontology-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.rg-ontology-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.96);
+}
+
+.rg-ontology-hint {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.rg-ontology-empty {
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.9);
+  padding: 6px 0 2px 0;
+}
+
+/* 列表背景区域：flex:1 填满，内部滚动 */
+.rg-ontology-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  overflow: auto;
+  padding-top: 4px;
+}
+
+/* 卡片高度恒定 */
+.rg-ontology-card {
+  height: 100px; /* 恒定高度，按需可微调 */
+  box-sizing: border-box;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: radial-gradient(
+      500px 260px at 0% 0%,
+      rgba(59, 130, 246, 0.16),
+      rgba(15, 23, 42, 0.96)
+  );
+  border: 1px solid rgba(129, 140, 248, 0.4);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      border-color 0.15s ease,
+      background 0.15s ease;
+}
+.rg-ontology-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(129, 140, 248, 0.9);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.95);
+  background: radial-gradient(
+      500px 260px at 0% 0%,
+      rgba(96, 165, 250, 0.2),
+      rgba(15, 23, 42, 0.98)
+  );
+}
+
+.rg-ontology-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rg-ontology-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: rgba(248, 250, 252, 0.98);
+  background: linear-gradient(135deg, #3b82f6, #22c55e);
+  border: 1px solid rgba(191, 219, 254, 0.85);
+}
+
+.rg-ontology-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rg-ontology-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.97);
+  max-width: 200px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.rg-ontology-sub {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.rg-ontology-body {
+  margin-top: 2px;
+}
+
+.rg-ontology-label {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.9);
 }
 
 /* ========== Drawer ========== */
@@ -608,7 +941,6 @@ export default {
   padding: 0;
 }
 
-/* Drawer 头部 */
 .rg-drawer-head {
   padding: 18px 16px 10px 16px;
   display: flex;
@@ -631,16 +963,13 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-
   color: rgba(248, 250, 252, 0.96);
   font-weight: 900;
-
   background: linear-gradient(135deg, #3b82f6, #22c55e);
   border: 1px solid rgba(148, 163, 184, 0.9);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
-/* Drawer 顶部孪生体名称 */
 .rg-drawer-meta .rg-name {
   color: rgba(248, 250, 252, 0.98);
   font-size: 16px;
@@ -680,7 +1009,6 @@ export default {
   background: rgba(31, 41, 55, 0.9);
 }
 
-/* Drawer 内容区域 */
 .rg-drawer-body {
   padding: 14px 16px 18px 16px;
   flex: 1;
@@ -742,7 +1070,6 @@ export default {
   padding: 12px;
 }
 
-/* JSON 滚动区域 */
 .rg-json-view {
   margin: 0;
   padding: 12px;
@@ -785,5 +1112,39 @@ export default {
       rgba(59, 130, 246, 0.96)
   );
   border-color: rgba(15, 23, 42, 0.85);
+}
+
+/* 模型 JSON 弹框样式 */
+::v-deep .rg-model-dialog {
+  background: radial-gradient(800px 400px at 0% 0%, rgba(56, 189, 248, 0.16), #020617);
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+}
+::v-deep .rg-model-dialog .el-dialog__body {
+  padding: 10px 16px 16px 16px;
+}
+
+.rg-model-dialog-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.98);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rg-model-dialog-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(148, 163, 184, 0.9);
+  word-break: break-all;
+}
+
+.rg-model-dialog-body {
+  max-height: 480px;
+  overflow: hidden;
+}
+
+.rg-json-view-dialog {
+  max-height: 440px;
 }
 </style>
