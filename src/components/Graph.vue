@@ -14,7 +14,7 @@
             :class="{ 'rg-ont-btn-active': ontologyMode }"
             @click="toggleOntology"
         >
-          本体
+          {{ ontologyMode ? '实例' : '本体' }}
         </button>
 
         <button class="rg-btn" @click="fitView">自适应</button>
@@ -57,8 +57,16 @@
               <div class="rg-ontology-name" :title="card.modelId">
                 {{ card.displayName }}
               </div>
-              <div class="rg-ontology-sub">
-                Model ID: {{ card.shortModelId }}
+
+              <!-- 统一的 Model ID 行布局：左 label，右内容单行省略号 -->
+              <div
+                  class="rg-ontology-sub"
+                  :title="card.modelId"
+              >
+                <span class="rg-ontology-sub-label">Model ID</span>
+                <span class="rg-ontology-sub-value">
+                  {{ card.shortModelId }}
+                </span>
               </div>
             </div>
           </div>
@@ -169,12 +177,12 @@
       </div>
     </el-drawer>
 
-    <!-- 模型 JSON 弹框 -->
+    <!-- 模型 JSON 弹框（点击本体卡片时用） -->
     <el-dialog
         :visible.sync="modelDialogVisible"
         width="720px"
         custom-class="rg-model-dialog"
-        :close-on-click-modal="false"
+        :close-on-click-modal="true"
         :append-to-body="true"
     >
       <div slot="title" class="rg-model-dialog-title">
@@ -273,7 +281,7 @@ export default {
       return (this.ontologyModelIds || []).map((m, idx) => {
         const modelId = String(m);
         const shortModelId =
-            modelId.length > 40 ? modelId.slice(0, 37) + "..." : modelId;
+            modelId.length > 64 ? modelId.slice(0, 61) + "..." : modelId; // 稍微长一点再省略
 
         let displayName = modelId;
         const parts = modelId.split(";");
@@ -781,8 +789,7 @@ export default {
 
 /* 本体按钮：不修改 height / padding，保证和 .rg-btn 一致 */
 .rg-ont-btn {
-  /* 这里故意不写 height / padding，只复用 .rg-btn，保证尺寸完全一致 */
-  font-size: 12px; /* 字号可以略小一点，不影响按钮信息尺寸 */
+  font-size: 12px;
 }
 .rg-ont-btn-active {
   background: linear-gradient(135deg, #4f46e5, #6366f1);
@@ -834,16 +841,25 @@ export default {
 .rg-ontology-grid {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: stretch;
+
   gap: 10px;
   overflow: auto;
   padding-top: 4px;
 }
 
-/* 卡片高度恒定 */
+/* 卡片高度恒定 + 宽度约 1/3 */
 .rg-ontology-card {
-  height: 100px; /* 恒定高度，按需可微调 */
+  flex: 0 0 calc(33.333% - 10px);
+  max-width: calc(33.333% - 10px);
+  min-width: 240px;
+
+  height: 100px; /* 恒定高度 */
+
   box-sizing: border-box;
   border-radius: 14px;
   padding: 10px 12px;
@@ -864,6 +880,7 @@ export default {
       border-color 0.15s ease,
       background 0.15s ease;
 }
+
 .rg-ontology-card:hover {
   transform: translateY(-2px);
   border-color: rgba(129, 140, 248, 0.9);
@@ -911,9 +928,26 @@ export default {
   overflow: hidden;
 }
 
+/* 统一 Model ID 行布局 */
 .rg-ontology-sub {
+  display: flex;
+  align-items: center;
+  max-width: 200px;
   font-size: 11px;
   color: rgba(148, 163, 184, 0.9);
+}
+
+.rg-ontology-sub-label {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  opacity: 0.9;
+}
+
+.rg-ontology-sub-value {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .rg-ontology-body {

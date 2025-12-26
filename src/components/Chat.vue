@@ -24,6 +24,7 @@
               <i class="el-icon-arrow-down caret"></i>
             </div>
 
+            <!-- 这里加上我们自定义主题 class：session-dropdown -->
             <el-dropdown-menu slot="dropdown" class="session-dropdown">
               <el-dropdown-item
                   v-for="item in assistants"
@@ -852,57 +853,6 @@ export default {
   color: rgba(255, 255, 255, 0.72);
 }
 
-/* 会话下拉 */
-::v-deep .session-dropdown {
-  background: rgba(10, 16, 28, 0.98) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: 14px !important;
-  padding: 8px 6px !important;
-  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55),
-  inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(10px) !important;
-  color: rgba(255, 255, 255, 0.92) !important;
-}
-::v-deep .session-dropdown .el-dropdown-menu__item {
-  height: 34px !important;
-  line-height: 34px !important;
-  padding: 0 12px !important;
-  margin: 2px 0 !important;
-  border-radius: 10px !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-  color: rgba(255, 255, 255, 0.8) !important;
-  background: transparent !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-}
-::v-deep .session-dropdown .el-dropdown-menu__item:hover {
-  background: rgba(255, 255, 255, 0.07) !important;
-  color: rgba(255, 255, 255, 0.92) !important;
-}
-::v-deep .session-dropdown .el-dropdown-menu__item.active {
-  background: linear-gradient(
-      180deg,
-      rgba(96, 165, 250, 0.2),
-      rgba(96, 165, 250, 0.12)
-  ) !important;
-  border: 1px solid rgba(96, 165, 250, 0.22) !important;
-  color: rgba(255, 255, 255, 0.95) !important;
-  font-weight: 900 !important;
-}
-::v-deep .session-dropdown .el-dropdown-menu {
-  max-height: 300px !important;
-  overflow-y: auto !important;
-}
-.menu-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.95);
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
-}
-
 /* 通用 icon 按钮 */
 .icon-btn {
   background: rgba(255, 255, 255, 0.06) !important;
@@ -1089,7 +1039,7 @@ export default {
   justify-content: flex-end;   /* 用户靠右 */
 }
 
-/* ✅ 气泡轨道：最大宽度 95%，内容自适应 */
+/* ✅ 气泡轨道：最大宽度 100%，内容自适应 */
 .bubble-wrap {
   display: flex;
   max-width: 100%;
@@ -1101,7 +1051,7 @@ export default {
   justify-content: flex-end;
 }
 
-/* ✅ 气泡：宽度由文字决定，但不超过 95% 轨道 */
+/* ✅ 气泡 */
 .message-bubble {
   position: relative;
   display: inline-block;
@@ -1232,7 +1182,7 @@ export default {
   border: 1px solid rgba(255, 255, 255, 0.12);
   outline: none;
   resize: none !important;
-  overflow: hidden !important;
+  overflow: hidden !重要;
   overflow-y: hidden !important;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -1346,5 +1296,87 @@ export default {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
   "Liberation Mono", monospace;
   font-size: 13px;
+}
+/* ==================== Session 下拉（精致紧凑版） ==================== */
+.session-dropdown {
+  /* 🌙 深色渐变玻璃风 */
+  background:
+      linear-gradient(180deg, rgba(15,23,42,0.96), rgba(11,18,32,0.98)),
+      radial-gradient(800px 400px at 0% 0%, rgba(96,165,250,0.15), transparent 60%),
+      radial-gradient(800px 400px at 100% 0%, rgba(139,92,246,0.15), transparent 60%) !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(148,163,184,0.38) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow:
+      0 16px 48px rgba(0,0,0,0.55),
+      inset 0 1px 0 rgba(255,255,255,0.04) !important;
+
+  /* 🎯 关键：更窄、更紧凑 */
+  min-width: 110px !important;
+  width: auto !important;
+  max-width: 220px !important; /* 防止太宽 */
+  padding: 6px !important;
+}
+
+/* ==================== 下拉项 ==================== */
+.session-dropdown .el-dropdown-menu__item {
+  height: 28px !important;
+  line-height: 28px !important;
+  padding: 0 10px !important;
+  margin: 1px 0 !important;
+  border-radius: 10px !important;
+
+  /* ✨ 字体更现代、更紧凑 */
+  font-family: Inter, "SF Pro Text", "PingFang SC", sans-serif;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.1px;
+
+  color: rgba(226,232,240,0.88) !important;
+  background: transparent !important;
+
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+/* hover: 轻微高亮 */
+.session-dropdown .el-dropdown-menu__item:hover {
+  background: rgba(148,163,184,0.14) !important;
+  color: rgba(248,250,252,0.96) !important;
+}
+
+/* active: 小胶囊高亮，不夸张 */
+.session-dropdown .el-dropdown-menu__item.active {
+  background: linear-gradient(
+      135deg,
+      rgba(96,165,250,0.65),
+      rgba(129,140,248,0.70)
+  ) !important;
+  border: 1px solid rgba(191,219,254,0.80) !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+
+/* 小绿点：保持原有风格 */
+.session-dropdown .menu-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(34,197,94,0.96);
+  box-shadow: 0 0 0 3px rgba(34,197,94,0.22);
+}
+
+/* ✨ 隐藏滚动条 */
+.session-dropdown.el-dropdown-menu {
+  max-height: 240px !important;
+  overflow-y: auto !important;
+  scrollbar-width: none;
+}
+.session-dropdown.el-dropdown-menu::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 </style>

@@ -77,7 +77,7 @@
           </div>
 
           <div v-else class="scene-list">
-            <!-- 展开：仅显示场景名字 -->
+            <!-- 展开：仅显示场景名字 + hover 三点菜单 -->
             <template v-if="!sceneSiderCollapsed">
               <div
                   v-for="s in normalizedScenes"
@@ -87,12 +87,33 @@
                   @click="onSelectScene(s.sceneId)"
               >
                 <span class="scene-name">{{ s.name || s.sceneId }}</span>
+
+                <!-- 右侧 hover 出现的更多按钮 -->
+                <div class="scene-item-more" @click.stop>
+                  <el-dropdown @command="handleSceneMoreCommand" placement="bottom-end">
+                    <span class="scene-more-trigger">
+                      <i class="el-icon-more"></i>
+                    </span>
+                    <el-dropdown-menu
+                        slot="dropdown"
+                        class="scene-dropdown-menu"
+                    >
+                      <el-dropdown-item
+                          class="scene-dropdown-item scene-dropdown-item-danger"
+                          :command="{ type: 'delete', sceneId: s.sceneId }"
+                      >
+                        <i class="el-icon-delete danger-icon"></i>
+                        <span class="danger-text">删除</span>
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </el-dropdown>
+                </div>
               </div>
 
               <div v-if="normalizedScenes.length === 0" class="empty">暂无场景</div>
             </template>
 
-            <!-- 收缩：仅显示小点 + tooltip -->
+            <!-- 收缩：仅显示小点 + tooltip（收缩态不放更多菜单，免得太挤） -->
             <template v-else>
               <el-tooltip
                   v-for="s in normalizedScenes"
@@ -150,7 +171,7 @@ import Chat from "@/components/Chat.vue";
 import Graph from "@/components/Graph.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import { getHistoryLog } from "@/api/chat";
-import { listScenes, createScene } from "@/api/scene";
+import { listScenes, createScene, deleteScene } from "@/api/scene";
 
 export default {
   name: "App",
@@ -299,7 +320,7 @@ export default {
         return;
       }
 
-      // ✅ 新增：与现有场景重名校验（不区分大小写）
+      // ✅ 与现有场景重名校验（不区分大小写）
       const exists = this.normalizedScenes.some((s) => {
         const sid = String(s.sceneId || "").trim().toLowerCase();
         const sname = String(s.name || "").trim().toLowerCase();
@@ -314,8 +335,8 @@ export default {
 
       this.creatingScene = true;
       try {
-        const response=await createScene(name);
-        if(response.code!==200){
+        const response = await createScene(name);
+        if (response.code !== 200) {
           this.$message.error("创建失败");
           return;
         }
@@ -338,6 +359,67 @@ export default {
         this.$message.error("创建失败");
       } finally {
         this.creatingScene = false;
+      }
+    },
+
+    // ===== 场景更多操作：当前只有删除 =====
+    handleSceneMoreCommand(command) {
+      if (!command || !command.type) return;
+      if (command.type === "delete" && command.sceneId) {
+        this.confirmDeleteScene(command.sceneId);
+      }
+    },
+
+    async confirmDeleteScene(sceneId) {
+      const target = this.normalizedScenes.find((s) => s.sceneId === sceneId);
+      const name = (target && (target.name || target.sceneId)) || sceneId;
+
+      // 二次确认 - 使用自定义暗色对话框样式
+      try {
+        await this.$confirm(
+            `确认删除场景「${name}」？删除后不可恢复。`,
+            "删除确认",
+            {
+              type: "warning",
+              confirmButtonText: "删除",
+              cancelButtonText: "取消",
+              customClass: "ws-confirm-box"
+            }
+        );
+      } catch (e) {
+        // 用户取消
+        return;
+      }
+
+      try {
+        const res = await deleteScene(sceneId);
+        if (res && res.code === 200) {
+          this.$message.success(`已删除场景「${name}」`);
+
+          // 本地列表更新
+          this.scenes = (this.scenes || []).filter((s) => {
+            if (typeof s === "string") return s !== sceneId;
+            return s && s.sceneId !== sceneId;
+          });
+
+          // 如果当前选中被删了，切换到第一个或空
+          if (this.scene === sceneId) {
+            const scenes = this.normalizedScenes;
+            if (scenes.length > 0) {
+              this.scene = scenes[0].sceneId;
+              window.localStorage.setItem("scene", this.scene);
+            } else {
+              this.scene = "test_scene";
+              window.localStorage.setItem("scene", this.scene);
+            }
+            // 切场景重建 Chat
+            this.chatKey += 1;
+          }
+        } else {
+          this.$message.error("删除失败");
+        }
+      } catch (e) {
+        this.$message.error("删除失败");
       }
     },
 
@@ -441,7 +523,7 @@ body {
   text-align: left;
 }
 
-/* ========= Design Tokens (保持你原来的) ========= */
+/* ========= Design Tokens ========= */
 :root {
   --ws-workbench-grad: radial-gradient(
       1200px 600px at 20% 10%,
@@ -569,14 +651,17 @@ body {
   gap: 8px;
 }
 
+/* ✅ 场景 item + 右侧更多按钮 */
 .scene-item {
   position: relative;
-  padding: 10px 12px;
+  padding: 10px 10px;
   border-radius: 12px;
   cursor: pointer;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.07);
   transition: transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+  display: flex;
+  align-items: center;
 }
 .scene-item:hover {
   background: rgba(255,255,255,0.055);
@@ -601,7 +686,7 @@ body {
   box-shadow: 0 0 0 2px rgba(96,165,250,0.12);
 }
 .scene-name {
-  display: block;
+  flex: 1;
   padding-left: 8px;
   color: rgba(255,255,255,0.90);
   font-weight: 800;
@@ -609,6 +694,96 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 更多按钮区域：默认透明，hover 才出现 */
+.scene-item-more {
+  margin-left: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+}
+.scene-item:hover .scene-item-more {
+  opacity: 1;
+}
+.scene-more-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+.scene-more-trigger i {
+  font-size: 16px;
+  color: rgba(255,255,255,0.65);
+}
+.scene-more-trigger:hover i {
+  color: rgba(255,255,255,0.95);
+}
+
+/* 下拉菜单：深色 + 渐变 + 圆角 + 更紧凑 */
+.scene-dropdown-menu {
+  padding: 2px 0;
+  border-radius: 16px;
+  background:
+      radial-gradient(520px 260px at 10% 0%, rgba(96,165,250,0.20), rgba(96,165,250,0) 60%),
+      radial-gradient(520px 260px at 90% 0%, rgba(139,92,246,0.20), rgba(139,92,246,0) 60%),
+      linear-gradient(180deg, rgba(12,18,36,0.98), rgba(8,12,24,0.98));
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.55);
+  min-width: 110px;
+  backdrop-filter: blur(12px);
+  animation: sceneDropdownScaleIn .14s ease-out;
+  transform-origin: top right;
+}
+
+.scene-dropdown-menu .el-dropdown-menu__item {
+  font-size: 12px;
+  color: rgba(255,255,255,0.84);
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+}
+
+/* 危险项：垃圾桶图标 + 文本 */
+.scene-dropdown-item-danger .danger-icon {
+  font-size: 14px;
+  color: rgba(248,113,113,0.95);
+}
+.scene-dropdown-item-danger .danger-text {
+  color: rgba(254,242,242,0.96);
+}
+
+.scene-dropdown-item-danger:hover,
+.scene-dropdown-item-danger:focus {
+  background: linear-gradient(
+      90deg,
+      rgba(248,113,113,0.20),
+      rgba(239,68,68,0.28)
+  ) !important;
+  color: rgba(255,255,255,0.98) !important;
+}
+
+/* 预留：普通项 hover（当前只有删除一个） */
+.scene-dropdown-menu .el-dropdown-menu__item:hover {
+  background: rgba(96,165,250,0.16);
+  color: rgba(255,255,255,0.98);
+}
+
+/* 下拉菜单微缩放动效 */
+@keyframes sceneDropdownScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .empty {
@@ -702,16 +877,23 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* ====== Popover Dark Theme ====== */
+/* ====== Popover Dark Theme（更圆角、更紧凑） ====== */
 .ws-dark-popper {
   background:
-      radial-gradient(900px 520px at 20% 10%, rgba(96,165,250,0.10), rgba(96,165,250,0) 60%),
-      radial-gradient(900px 520px at 85% 15%, rgba(139,92,246,0.08), rgba(139,92,246,0) 58%),
+      radial-gradient(900px 520px at 20% 10%, rgba(96,165,250,0.16), rgba(96,165,250,0) 60%),
+      radial-gradient(900px 520px at 85% 15%, rgba(139,92,246,0.12), rgba(139,92,246,0) 58%),
       linear-gradient(180deg, rgba(10,16,30,0.98), rgba(9,14,26,0.99)) !important;
-  border: 1px solid rgba(255,255,255,0.10) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
   box-shadow: 0 22px 70px rgba(0,0,0,0.55) !important;
   color: rgba(255,255,255,0.86) !important;
-  padding: 10px !important; /* Element 默认 padding 偏大 */
+  padding: 8px 10px !important;
+  border-radius: 18px !important;
+  backdrop-filter: blur(14px);
+}
+
+.ws-mini-popper {
+  min-width: 230px;
+  max-width: 260px;
 }
 
 /* popover 箭头也变暗 */
@@ -725,21 +907,16 @@ body {
   border-right-color: rgba(10,16,30,0.98) !important;
 }
 
-.ws-mini-popper {
-  min-width: 260px;
-  max-width: 280px;
-}
-
 .mini-pop {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .mini-pop-title {
   font-size: 12px;
   font-weight: 900;
-  color: rgba(255,255,255,0.92);
-  letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.94);
+  letter-spacing: 0.3px;
 }
 
 .ws-dark-input .el-input__inner {
@@ -754,11 +931,12 @@ body {
   border-color: rgba(96,165,250,0.55) !important;
   box-shadow: 0 0 0 2px rgba(96,165,250,0.18);
 }
+
 .ws-mini-input .el-input__inner {
-  height: 32px !important;
-  line-height: 32px !important;
+  height: 30px !important;
+  line-height: 30px !important;
   padding: 0 10px !important;
-  border-radius: 10px !important;
+  border-radius: 12px !important;
   font-size: 13px !important;
 }
 
@@ -766,27 +944,80 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 2px;
+  gap: 8px;
+  margin-top: 4px;
 }
 .mini-link {
   border: 0;
   background: transparent;
-  padding: 6px 6px;
+  padding: 4px 4px;
   cursor: pointer;
   color: rgba(255,255,255,0.68);
+  font-size: 12px;
 }
 .mini-link:hover {
-  color: rgba(255,255,255,0.90);
+  color: rgba(255,255,255,0.92);
 }
 
 .ws-btn-primary.el-button--primary {
-  background: rgba(96,165,250,0.22);
-  border-color: rgba(96,165,250,0.35);
-  color: rgba(255,255,255,0.92);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(96,165,250,0.26);
+  border-color: rgba(96,165,250,0.40);
+  color: rgba(255,255,255,0.94);
 }
 .ws-btn-primary.el-button--primary:hover {
-  background: rgba(96,165,250,0.30);
-  border-color: rgba(96,165,250,0.45);
+  background: rgba(96,165,250,0.34);
+  border-color: rgba(96,165,250,0.52);
+}
+
+/* ====== 删除确认弹框主题 ====== */
+.ws-confirm-box {
+  background:
+      radial-gradient(1000px 520px at 10% 0%, rgba(96,165,250,0.20), rgba(96,165,250,0) 60%),
+      radial-gradient(1000px 520px at 90% 0%, rgba(139,92,246,0.18), rgba(139,92,246,0) 60%),
+      linear-gradient(180deg, rgba(10,16,30,0.98), rgba(5,10,20,0.99));
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 26px 80px rgba(0,0,0,0.65);
+  color: rgba(255,255,255,0.90);
+}
+.ws-confirm-box .el-message-box__title {
+  color: rgba(255,255,255,0.95);
+  font-size: 15px;
+  font-weight: 800;
+}
+.ws-confirm-box .el-message-box__headerbtn .el-message-box__close {
+  color: rgba(255,255,255,0.60);
+}
+.ws-confirm-box .el-message-box__headerbtn:hover .el-message-box__close {
+  color: rgba(255,255,255,0.98);
+}
+.ws-confirm-box .el-message-box__message {
+  color: rgba(255,255,255,0.82);
+}
+.ws-confirm-box .el-message-box__btns {
+  padding-top: 10px;
+}
+.ws-confirm-box .el-button {
+  border-radius: 999px;
+}
+.ws-confirm-box .el-button--default {
+  background: rgba(15,23,42,0.9);
+  border-color: rgba(148,163,184,0.5);
+  color: rgba(226,232,240,0.9);
+}
+.ws-confirm-box .el-button--default:hover {
+  background: rgba(30,41,59,0.95);
+  border-color: rgba(148,163,184,0.9);
+}
+.ws-confirm-box .el-button--primary {
+  background: rgba(239,68,68,0.26);
+  border-color: rgba(248,113,113,0.68);
+  color: rgba(254,242,242,0.98);
+}
+.ws-confirm-box .el-button--primary:hover {
+  background: rgba(239,68,68,0.42);
+  border-color: rgba(248,113,113,0.9);
 }
 </style>
