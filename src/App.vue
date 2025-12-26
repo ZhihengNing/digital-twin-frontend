@@ -339,8 +339,33 @@ export default {
       }
 
       this.creatingScene = true;
-    ...
-    }
+      try {
+        const response = await createScene(name);
+        if (response.code !== 200) {
+          this.$message.error("创建失败");
+          return;
+        }
+
+        this.$message.success("创建成功");
+
+        // 关闭 popover
+        this.createScenePopoverVisible = false;
+        this.newSceneName = "";
+
+        // 重新拉取并选中
+        await this.loadScenesAndInit();
+
+        // 尝试选中新场景
+        const found = this.normalizedScenes.find(
+            (s) => s.sceneId === name || (s.name && s.name === name)
+        );
+        if (found) this.onSelectScene(found.sceneId);
+      } catch (e) {
+        this.$message.error("创建失败");
+      } finally {
+        this.creatingScene = false;
+      }
+    },
 
     // ===== 场景更多操作：当前只有删除 =====
     handleSceneMoreCommand(command) {
