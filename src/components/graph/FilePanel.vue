@@ -216,7 +216,6 @@ export default {
         if(resp.code===200){
           rawList=resp.data.files;
         }
-        console.log(rawList)
 
         this.files = (rawList || []).map(f => {
           const name = f.fileName || f.finalName || f.path || "";
@@ -294,6 +293,7 @@ export default {
       try {
         await delFileInScene(item.id);
         this.$message && this.$message.success("删除成功");
+        await new Promise(resolve => setTimeout(resolve, 500));
         await this.loadFiles();
       } catch (e) {
         console.error(e);
