@@ -8,36 +8,66 @@
       </div>
 
       <div class="rg-actions">
-        <!-- 本体按钮 -->
-        <button
-            class="rg-btn rg-ont-btn"
-            :class="{ 'rg-ont-btn-active': ontologyMode }"
-            @click="toggleOntology"
-        >
-          {{ ontologyMode ? '实例' : '本体' }}
-        </button>
-
-        <button class="rg-btn" @click="fitView">自适应</button>
-        <button class="rg-btn" @click="reLayout">重排</button>
+        <!-- 模式切换胶囊：文件 / 实例 / 本体 -->
+        <div class="rg-mode-pill">
+          <button
+              class="rg-mode-item"
+              :class="{ 'is-active': viewMode === 'file' }"
+              @click="setMode('file')"
+          >
+            文件
+          </button>
+          <span class="rg-mode-divider"></span>
+          <button
+              class="rg-mode-item"
+              :class="{ 'is-active': viewMode === 'instance' }"
+              @click="setMode('instance')"
+          >
+            实例
+          </button>
+          <span class="rg-mode-divider"></span>
+          <button
+              class="rg-mode-item"
+              :class="{ 'is-active': viewMode === 'ontology' }"
+              @click="setMode('ontology')"
+          >
+            本体
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- 本体模式：独立组件 -->
     <OntologyPanel
-        v-if="ontologyMode"
+        v-if="viewMode === 'ontology'"
         :scene="scene"
     />
 
-    <!-- 图表容器：本体模式下隐藏 -->
+    <!-- 实例模式：图表 + 浮动工具条 -->
     <div
-        ref="chart"
-        class="rg-chart"
-        v-show="!ontologyMode"
-    ></div>
+        v-show="viewMode === 'instance'"
+        class="rg-chart-wrap"
+    >
+      <div
+          ref="chart"
+          class="rg-chart"
+      ></div>
 
-    <!-- 节点详情 Drawer 组件 -->
+      <!-- 自然悬浮按钮 -->
+      <button type="button" class="rg-chart-btn" @click="fitView">自适应</button>
+      <button type="button" class="rg-chart-btn" style="margin-left: 8px" @click="reLayout">重排</button>
+
+    </div>
+
+    <!-- 文件模式：文件面板 -->
+    <FilePanel
+        v-if="viewMode === 'file'"
+        :scene="scene"
+    />
+
+    <!-- 节点详情 Drawer 组件：仅在实例模式下可见 -->
     <NodeDetailDrawer
-        v-if="!ontologyMode && drawerVisible"
+        v-if="viewMode === 'instance' && drawerVisible"
         :visible.sync="drawerVisible"
         :scene="scene"
         :node="selectedNode"
@@ -52,12 +82,14 @@ import * as echarts from "echarts";
 import { getAllGraph } from "@/api/graph";
 import OntologyPanel from "@/components/graph/OntologyPanel.vue";
 import NodeDetailDrawer from "@/components/graph/NodeDetailDrawer.vue";
+import FilePanel from "@/components/graph/FilePanel.vue";
 
 export default {
   name: "RelationGraph",
   components: {
     OntologyPanel,
-    NodeDetailDrawer
+    NodeDetailDrawer,
+    FilePanel
   },
   props: {
     scene: { type: String, default: "test_scene" },
@@ -75,10 +107,18 @@ export default {
       selectedNode: null,
 
       graphLoading: false,
-      ontologyMode: false,
+
+      // 三种模式：file | instance | ontology
+      viewMode: "instance",
 
       _reqToken: 0
     };
+  },
+  computed: {
+    // 兼容旧逻辑用到 ontologyMode 的地方
+    ontologyMode() {
+      return this.viewMode === "ontology";
+    }
   },
   async mounted() {
     await this.loadAllGraph();
@@ -100,17 +140,28 @@ export default {
       if (this.chart) this.chart.resize();
     },
 
-    /* ==================== 本体模式开关 ==================== */
-    toggleOntology() {
-      const to = !this.ontologyMode;
-      this.ontologyMode = to;
+    /* ==================== 模式切换 ==================== */
+    setMode(mode) {
+      if (this.viewMode === mode) return;
 
-      if (!to) {
-        // 退出本体模式：重新计算图谱尺寸
+      this.viewMode = mode;
+
+      // 切换出实例模式时，关闭节点详情 Drawer
+      if (mode !== "instance") {
+        this.drawerVisible = false;
+      }
+
+      // 切回实例时，重算图尺寸
+      if (mode === "instance") {
         this.$nextTick(() => {
           if (this.chart) this.chart.resize();
         });
       }
+    },
+
+    // 兼容旧用法：本体/实例之间切换
+    toggleOntology() {
+      this.setMode(this.viewMode === "ontology" ? "instance" : "ontology");
     },
 
     /* ==================== 图谱加载逻辑 ==================== */
@@ -146,12 +197,14 @@ export default {
     },
 
     initChart() {
+      if (!this.$refs.chart) return;
+
       this.chart = echarts.init(this.$refs.chart);
       this.render(true);
 
       this.chart.on("click", (params) => {
-        // 本体模式不弹 Drawer
-        if (this.ontologyMode) return;
+        // 本体 / 文件模式不弹 Drawer
+        if (this.viewMode !== "instance") return;
 
         if (params && params.dataType === "node") {
           this.selectedNode =
@@ -160,7 +213,6 @@ export default {
                   : params.data || null;
 
           this.drawerVisible = true;
-          // 具体的详情加载交给 NodeDetailDrawer 自己完成
         }
       });
     },
@@ -378,7 +430,95 @@ export default {
   gap: 10px;
 }
 
-/* 通用按钮（用 deep，让子组件的 .rg-mini-btn 也继承） */
+/* 模式切换胶囊 */
+.rg-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background:
+      radial-gradient(
+          200px 120px at 0% 0%,
+          rgba(37, 99, 235, 0.22),
+          transparent 60%
+      ),
+      radial-gradient(
+          200px 120px at 100% 100%,
+          rgba(129, 140, 248, 0.22),
+          transparent 60%
+      );
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.8);
+}
+
+.rg-mode-item {
+  border: none;
+  outline: none;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  min-width: 48px;
+}
+
+.rg-mode-item:hover {
+  background: rgba(15, 23, 42, 0.85);
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.rg-mode-item.is-active {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: rgba(248, 250, 252, 0.98);
+  box-shadow:
+      0 0 0 1px rgba(191, 219, 254, 0.65),
+      0 8px 18px rgba(15, 23, 42, 0.95);
+}
+
+.rg-mode-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(148, 163, 184, 0.45);
+  margin: 0 2px;
+}
+
+/* 实例模式中的图容器 + 悬浮工具条 */
+.rg-chart-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.rg-chart {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 悬浮在图右上角的小工具条 */
+.rg-chart-tools {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: radial-gradient(
+      140px 90px at 0% 0%,
+      rgba(15, 23, 42, 0.92),
+      transparent 70%
+  ),
+  rgba(15, 23, 42, 0.92);
+  box-shadow:
+      0 10px 25px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(30, 64, 175, 0.7);
+}
+
+/* 通用按钮（以及子组件中的 .rg-mini-btn） */
 .rg-wrap ::v-deep .rg-btn,
 .rg-wrap ::v-deep .rg-mini-btn {
   height: 32px;
@@ -409,24 +549,8 @@ export default {
   transform: none;
 }
 
-/* 本体按钮（在外层就能影响到 header 里的按钮） */
-.rg-ont-btn {
-  font-size: 12px;
-}
-.rg-ont-btn-active {
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  border-color: rgba(129, 140, 248, 1);
-  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.6);
-}
-
-.rg-chart {
-  flex: 1;
-  min-height: 0;
-}
-
 /* ========== JSON 面板 & 滚动条（Drawer + Dialog 共用） ========== */
 
-/* JSON 面板改成明显的“卡片”样式，和底色区分开 */
 .rg-wrap ::v-deep .rg-json-stack {
   flex: 1;
   min-height: 0;
@@ -447,7 +571,6 @@ export default {
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.9);
 }
 
-/* 顶部条和卡片背景衔接顺滑一点 */
 .rg-wrap ::v-deep .rg-json-top {
   display: flex;
   align-items: center;
@@ -486,7 +609,6 @@ export default {
   padding: 12px;
 }
 
-/* JSON 文本区域，比 Drawer 背景稍微亮一点，形成层次但不突兀 */
 .rg-wrap ::v-deep .rg-json-view {
   margin: 0;
   padding: 12px;
@@ -534,6 +656,54 @@ export default {
   );
   border-color: rgba(15, 23, 42, 0.85);
 }
+
+/* 自然悬浮 + 更靠右上 + 轻微边框 */
+.rg-chart-btn {
+  position: absolute;
+  top: 6px;     /* -> 更贴近顶部 */
+  right: 8px;   /* -> 更贴近右侧 */
+
+  display: inline-flex;
+  align-items: center;
+
+  border: 1px solid rgba(255, 255, 255, 0.10); /* ✨ 轻微边框 */
+  outline: none;
+  background: rgba(15, 23, 42, 0.20); /* ✨ 极轻暗底增强可读性但仍趋近透明 */
+
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+
+  backdrop-filter: blur(3px); /* ✨ 极轻柔处理，让按钮融入背景 */
+  transition: all 0.18s ease;
+  cursor: pointer;
+}
+
+/* 兄弟按钮向左偏移，距离更紧密、更整体 */
+.rg-chart-btn + .rg-chart-btn {
+  right: 70px; /* 根据按钮内容自动调整，一般 62~78 都行 */
+}
+
+/* hover：稍亮、边框更显、渐变唤醒 */
+.rg-chart-btn:hover {
+  background: linear-gradient(135deg,
+  rgba(37, 99, 235, 0.35),
+  rgba(79, 70, 229, 0.35)
+  );
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 1);
+  transform: translateY(-1px);
+}
+
+/* active：按下微回弹 */
+.rg-chart-btn:active {
+  transform: translateY(0);
+  background: linear-gradient(135deg,
+  rgba(37,99,235,0.55),
+  rgba(79,70,229,0.55)
+  );
+}
+
 </style>
-
-

@@ -28,9 +28,6 @@
         </div>
       </div>
 
-      <div class="rg-head-actions">
-        <i class="el-icon-close rg-close" @click="onClose"></i>
-      </div>
     </div>
 
     <div class="rg-drawer-body">
@@ -143,9 +140,11 @@ export default {
   },
   computed: {
     stackStyle() {
-      // 两个 JSON 面板等高
+      // 按传入比例设置两块高度
+      const t = this.ratioTop || 4;
+      const b = this.ratioBottom || 6;
       return {
-        gridTemplateRows: "4fr 6fr"
+        gridTemplateRows: `${t}fr ${b}fr`
       };
     },
     nodeName() {
@@ -315,7 +314,7 @@ export default {
 <style scoped>
 /* ========== Drawer 外观（NodeDetailDrawer 专用） ========== */
 .rg-drawer {
-  overflow: hidden; /* 让整个抽屉本身不出现滚动条 */
+  overflow: hidden;
   background:
       radial-gradient(900px 500px at 80% 0%, rgba(56, 189, 248, 0.28), transparent 60%),
       radial-gradient(900px 500px at 0% 0%, rgba(79, 70, 229, 0.22), transparent 60%),
@@ -387,7 +386,7 @@ export default {
 .rg-head-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 .rg-close {
@@ -413,7 +412,7 @@ export default {
       #020617;
 }
 
-/* 确保复制按钮在本组件中也有统一样式 */
+/* 复制按钮 & 图操作按钮风格统一 */
 .rg-mini-btn {
   height: 30px;
   padding: 0 10px;
@@ -438,5 +437,3 @@ export default {
   transform: none;
 }
 </style>
-
-
