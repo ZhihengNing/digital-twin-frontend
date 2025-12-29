@@ -8,16 +8,8 @@
       </div>
 
       <div class="rg-actions">
-        <!-- 模式切换胶囊：文件 / 实例 / 本体 -->
+        <!-- 模式切换胶囊：实例/ 本体 /文件   -->
         <div class="rg-mode-pill">
-          <button
-              class="rg-mode-item"
-              :class="{ 'is-active': viewMode === 'file' }"
-              @click="setMode('file')"
-          >
-            文件
-          </button>
-          <span class="rg-mode-divider"></span>
           <button
               class="rg-mode-item"
               :class="{ 'is-active': viewMode === 'instance' }"
@@ -32,6 +24,14 @@
               @click="setMode('ontology')"
           >
             本体
+          </button>
+          <span class="rg-mode-divider"></span>
+          <button
+              class="rg-mode-item"
+              :class="{ 'is-active': viewMode === 'file' }"
+              @click="setMode('file')"
+          >
+            文件
           </button>
         </div>
       </div>

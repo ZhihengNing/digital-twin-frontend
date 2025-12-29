@@ -336,7 +336,7 @@ export default {
       this.cancelCreateInline();
 
       const res = await getAllSessions();
-      const arr = res?.data || res || [];
+      const arr = res?.data.sessions || res || [];
       this.assistants = (arr || []).map(t => ({ label: t, value: t }));
 
       if (!this.assistants.length) {
