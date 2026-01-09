@@ -1,8 +1,8 @@
 // src/api/chat.js
 import {apiAgentClient} from "@/api/apiClient"; // 你项目里原本怎么引就怎么引
 
-
-const baseURL="http://100.84.26.208:12000/"
+export const baseIP="100.84.26.208"
+const baseURL="http://"+baseIP+":52000/"
 
 export async function resolveQuery(query, options) {
     const data = { message: query };

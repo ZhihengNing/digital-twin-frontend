@@ -154,7 +154,8 @@ import {
   getAllFilesInScene,
   uploadIngestFile,
   delFileInScene
-} from "@/api/file"; // 按你的实际路径修改
+} from "@/api/file";
+import {baseIP} from "@/api/chat"; // 按你的实际路径修改
 
 export default {
   name: "FilePanel",
@@ -358,7 +359,7 @@ export default {
     /** ======================== 工具方法 ======================== */
 
     rewriteHost(url = "") {
-      return url.replace("127.0.0.1", "100.84.26.208")
+      return url.replace("127.0.0.1", baseIP)
     },
 
     getFileIconText(name = "") {
