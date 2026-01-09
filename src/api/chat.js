@@ -2,7 +2,7 @@
 import {apiAgentClient} from "@/api/apiClient"; // 你项目里原本怎么引就怎么引
 
 export const baseIP="100.84.26.208"
-const baseURL="http://"+baseIP+":52000/"
+const baseURL="http://"+baseIP+":51500/"
 
 export async function resolveQuery(query, options) {
     const data = { message: query };

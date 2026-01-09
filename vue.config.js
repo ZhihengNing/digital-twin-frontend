@@ -2,13 +2,13 @@ const { defineConfig } = require('@vue/cli-service')
 module.exports = defineConfig({
   transpileDependencies: true,
   devServer: {
-    port: 53003,
+    port: 51502,
     host: '0.0.0.0',
     https: false,
     open: true,
     proxy: {
       '/apiAgent': {  //需要代理的接口
-        target: 'http://127.0.0.1:53000',
+        target: 'http://127.0.0.1:51500',
         // target:'http://100.84.26.208:12000', //目标服务器
         changeOrigin: true,//是否跨域
         pathRewrite: {
@@ -17,7 +17,7 @@ module.exports = defineConfig({
         secure: false
       },
       '/apiSever': {  //需要代理的接口
-        target: 'http://127.0.0.1:53001',
+        target: 'http://127.0.0.1:51501',
         // target: 'http://100.84.26.208:12001', //目标服务器
         changeOrigin: true,//是否跨域
         pathRewrite: {
